@@ -34,14 +34,8 @@ jobs:
 
       - name: Lint first-party Solidity
         # contracts/trex is vendored upstream and deliberately excluded via
-        # .solhintignore. Until the first Eqowa module lands in M1-05 there is
-        # nothing of ours to lint, and solhint exits non-zero on an empty glob.
-        run: |
-          if [ -n "$(find contracts/compliance -name '*.sol' 2>/dev/null)" ]; then
-            npx solhint "contracts/compliance/**/*.sol"
-          else
-            echo "No first-party Solidity yet; skipping lint."
-          fi
+        # .solhintignore, so only our own modules are linted here.
+        run: npm run lint:sol
 
       - name: Run tests
         run: npx hardhat test
