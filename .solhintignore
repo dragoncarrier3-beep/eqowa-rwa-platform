@@ -1,0 +1,7 @@
+node_modules/
+artifacts/
+cache/
+
+# Vendored upstream T-REX v4.1.6. Kept byte-identical to the reference
+# implementation, so it is not linted against our house rules.
+contracts/trex/
