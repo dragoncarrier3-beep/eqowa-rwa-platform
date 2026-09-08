@@ -13,9 +13,9 @@ import {IToken} from "../../trex/token/IToken.sol";
  * investor who spreads a position across several wallets still occupies a
  * single slot. That is the count a share register and a regulator care about.
  *
- * T-REX calls `transferred` before the token updates its balances, so the
- * module cannot read balances from the token at action time. It therefore
- * maintains its own per-identity balances purely to detect the two moments
+ * The cap is per identity, but token balances are per wallet and there is no
+ * way to enumerate the wallets behind an ONCHAINID. The module therefore
+ * maintains its own per-identity balances, purely to detect the two moments
  * that matter: an identity crossing from zero to non-zero, and back again.
  *
  * @dev A cap of zero blocks every incoming transfer. This is deliberate: a
