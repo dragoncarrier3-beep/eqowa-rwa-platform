@@ -1,0 +1,16 @@
+# Normalise line endings. Development happens on Windows, CI runs on Linux;
+# without this, every checkout shows phantom modifications and format checks
+# fail on line endings alone.
+* text=auto eol=lf
+
+# Binary files must never be normalised.
+*.pdf binary
+*.png binary
+*.jpg binary
+*.ico binary
+
+# Generated. Collapse in pull request diffs.
+package-lock.json linguist-generated=true
+
+# Vendored upstream. Excluded from language statistics.
+contracts/trex/** linguist-vendored=true
