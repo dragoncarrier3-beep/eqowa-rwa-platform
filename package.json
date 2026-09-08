@@ -1,0 +1,29 @@
+{
+  "name": "eqowa-rwa-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Institutional RWA tokenization and compliance engine for Eqowa Fintech.",
+  "license": "SEE LICENSE IN LICENSE",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "coverage": "hardhat coverage",
+    "lint:sol": "solhint \"contracts/**/*.sol\"",
+    "format": "prettier --write \"contracts/**/*.sol\" \"test/**/*.ts\" \"scripts/**/*.ts\"",
+    "format:check": "prettier --check \"contracts/**/*.sol\" \"test/**/*.ts\" \"scripts/**/*.ts\"",
+    "deploy:amoy": "hardhat run scripts/deploy.ts --network amoy",
+    "transfer-ownership:amoy": "hardhat run scripts/transferOwnership.ts --network amoy"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@onchain-id/solidity": "^2.2.1",
+    "@openzeppelin/contracts": "^4.9.6",
+    "@openzeppelin/contracts-upgradeable": "^4.9.6",
+    "dotenv": "^16.4.5",
+    "hardhat": "^2.22.15",
+    "prettier": "^3.3.3",
+    "prettier-plugin-solidity": "^1.4.1",
+    "solhint": "^5.0.3",
+    "typescript": "^5.6.3"
+  }
+}
