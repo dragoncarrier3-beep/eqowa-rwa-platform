@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# A new push to a branch cancels any run still in progress for that branch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Compile and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile contracts
+        run: npx hardhat compile
+
+      - name: Lint first-party Solidity
+        # contracts/trex is vendored upstream and deliberately excluded via
+        # .solhintignore. Until the first Eqowa module lands in M1-05 there is
+        # nothing of ours to lint, and solhint exits non-zero on an empty glob.
+        run: |
+          if [ -n "$(find contracts/compliance -name '*.sol' 2>/dev/null)" ]; then
+            npx solhint "contracts/compliance/**/*.sol"
+          else
+            echo "No first-party Solidity yet; skipping lint."
+          fi
+
+      - name: Run tests
+        run: npx hardhat test
