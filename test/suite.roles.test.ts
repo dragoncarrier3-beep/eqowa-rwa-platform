@@ -56,9 +56,9 @@ describe('role boundaries', () => {
     it('rejects ownership and compliance changes from the agent and from outsiders', async () => {
       const { accounts, suite } = await loadFixture(deployEqowaSuiteFixture);
 
-      await expect(suite.token.connect(accounts.outsider).transferOwnership(accounts.outsider.address)).to.be.revertedWith(
-        NOT_OWNER,
-      );
+      await expect(
+        suite.token.connect(accounts.outsider).transferOwnership(accounts.outsider.address),
+      ).to.be.revertedWith(NOT_OWNER);
       await expect(
         suite.token.connect(accounts.tokenAgent).transferOwnership(accounts.tokenAgent.address),
       ).to.be.revertedWith(NOT_OWNER);
@@ -84,6 +84,8 @@ describe('role boundaries', () => {
     });
 
     it('rejects an implementation-authority upgrade from anyone but its owner', async () => {
+      // The shared fixture leaves the authority with the deployer. Production
+      // handover moves it to the Safe; see test/suite.handover.test.ts.
       const { accounts, infrastructure } = await loadFixture(deployEqowaSuiteFixture);
 
       await expect(

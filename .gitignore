@@ -11,6 +11,10 @@ dist/
 .env.*
 !.env.example
 
+# Live deployment addresses. Written by scripts/deploy.ts.
+deployments/*.json
+!deployments/.gitkeep
+
 # Editor / OS
 .DS_Store
 Thumbs.db

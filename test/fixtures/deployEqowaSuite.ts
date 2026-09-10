@@ -3,19 +3,10 @@ import OnchainID from '@onchain-id/solidity';
 import type { HardhatEthersSigner } from '@nomicfoundation/hardhat-ethers/signers';
 import type { BaseContract } from 'ethers';
 
-import {
-  ALLOWED_COUNTRIES,
-  COUNTRY,
-  MAX_BALANCE,
-  REQUIRED_CLAIM_TOPICS,
-  TOKEN_DECIMALS,
-  TOKEN_NAME,
-  TOKEN_SYMBOL,
-  chunkCountries,
-} from '../../config/eqowa';
+import { COUNTRY, REQUIRED_CLAIM_TOPICS } from '../../config/eqowa';
+import { deployEqowaContracts, SUITE_SALT } from '../../scripts/lib/deployEqowaContracts';
 
-/** Salt used by the factory's CREATE2 deployment of the EQOWAG suite. */
-export const SUITE_SALT = 'eqowa-group-shares';
+export { SUITE_SALT };
 
 /** ERC-734 key purposes. 1 is management, 2 is action, 3 is claim signing. */
 const KEY_PURPOSE_CLAIM_SIGNER = 3;
@@ -90,145 +81,36 @@ export async function deployEqowaSuiteFixture() {
   // Off-chain key the issuer signs claims with. In production this lives in KMS.
   const claimIssuerSigningKey = ethers.Wallet.createRandom();
 
-  // --- Implementations behind the T-REX proxies -----------------------------
-  const claimTopicsRegistryImpl = await ethers.deployContract('ClaimTopicsRegistry', [], deployer);
-  const trustedIssuersRegistryImpl = await ethers.deployContract('TrustedIssuersRegistry', [], deployer);
-  const identityRegistryStorageImpl = await ethers.deployContract('IdentityRegistryStorage', [], deployer);
-  const identityRegistryImpl = await ethers.deployContract('IdentityRegistry', [], deployer);
-  const modularComplianceImpl = await ethers.deployContract('ModularCompliance', [], deployer);
-  const tokenImpl = await ethers.deployContract('Token', [], deployer);
-
-  // --- ONCHAINID infrastructure --------------------------------------------
-  const identityImpl = await new ethers.ContractFactory(
-    OnchainID.contracts.Identity.abi,
-    OnchainID.contracts.Identity.bytecode,
-    deployer,
-  ).deploy(deployer.address, true);
-  await identityImpl.waitForDeployment();
-
-  const identityImplementationAuthority = await new ethers.ContractFactory(
-    OnchainID.contracts.ImplementationAuthority.abi,
-    OnchainID.contracts.ImplementationAuthority.bytecode,
-    deployer,
-  ).deploy(await identityImpl.getAddress());
-  await identityImplementationAuthority.waitForDeployment();
-
-  const identityFactory = await new ethers.ContractFactory(
-    OnchainID.contracts.Factory.abi,
-    OnchainID.contracts.Factory.bytecode,
-    deployer,
-  ).deploy(await identityImplementationAuthority.getAddress());
-  await identityFactory.waitForDeployment();
-
-  // --- T-REX implementation authority --------------------------------------
-  // Owning this contract is what "owning the ProxyAdmin" means in T-REX: it is
-  // the single switch that upgrades every proxy in the suite.
-  const trexImplementationAuthority = await ethers.deployContract(
-    'TREXImplementationAuthority',
-    [true, ethers.ZeroAddress, ethers.ZeroAddress],
-    deployer,
-  );
-
-  await trexImplementationAuthority.addAndUseTREXVersion(
-    { major: 4, minor: 1, patch: 6 },
-    {
-      tokenImplementation: await tokenImpl.getAddress(),
-      ctrImplementation: await claimTopicsRegistryImpl.getAddress(),
-      irImplementation: await identityRegistryImpl.getAddress(),
-      irsImplementation: await identityRegistryStorageImpl.getAddress(),
-      tirImplementation: await trustedIssuersRegistryImpl.getAddress(),
-      mcImplementation: await modularComplianceImpl.getAddress(),
-    },
-  );
-
-  // --- Suite factory --------------------------------------------------------
-  const trexFactory = await ethers.deployContract(
-    'TREXFactory',
-    [await trexImplementationAuthority.getAddress(), await identityFactory.getAddress()],
-    deployer,
-  );
-  await (identityFactory.connect(deployer) as any).addTokenFactory(await trexFactory.getAddress());
-
   // --- Trusted claim issuer -------------------------------------------------
   const claimIssuerContract = await ethers.deployContract('ClaimIssuer', [claimIssuer.address], claimIssuer);
   await claimIssuerContract
     .connect(claimIssuer)
     .addKey(addressKey(claimIssuerSigningKey.address), KEY_PURPOSE_CLAIM_SIGNER, KEY_TYPE_ECDSA);
 
-  // --- Compliance modules ---------------------------------------------------
-  // First-party MIT modules sit behind ComplianceModuleProxy. Tokeny's
-  // CountryAllowModule and MaxBalanceModule are no longer deployed; both
-  // carry a NonCommercial clause the client asked us to leave unused.
-  const countryAllowImpl = await ethers.deployContract('CountryAllowlistModule', [], deployer);
-  const countryAllowProxy = await ethers.deployContract(
-    'ComplianceModuleProxy',
-    [await countryAllowImpl.getAddress(), countryAllowImpl.interface.encodeFunctionData('initialize')],
+  // Same factory path the Amoy deploy script uses, including all five modules.
+  const deployed = await deployEqowaContracts({
     deployer,
-  );
-  const countryAllowModule = await ethers.getContractAt(
-    'CountryAllowlistModule',
-    await countryAllowProxy.getAddress(),
-  );
+    owner: safe.address,
+    agent: tokenAgent.address,
+    claimIssuer: await claimIssuerContract.getAddress(),
+    // Tests mint and transfer in the same block. Production deploy uses 730 days.
+    lockupDuration: 0n,
+  });
 
-  const maxBalanceImpl = await ethers.deployContract('BalanceCapModule', [], deployer);
-  const maxBalanceProxy = await ethers.deployContract(
-    'ComplianceModuleProxy',
-    [await maxBalanceImpl.getAddress(), maxBalanceImpl.interface.encodeFunctionData('initialize')],
-    deployer,
-  );
-  const maxBalanceModule = await ethers.getContractAt('BalanceCapModule', await maxBalanceProxy.getAddress());
-  const countryAllowAddress = await countryAllowModule.getAddress();
-  // One factory action per chunk. The factory binds the module on the first
-  // occurrence and then calls each encoded batch in order.
-  const countryChunks = chunkCountries(ALLOWED_COUNTRIES);
-
-  // --- Deploy the suite -----------------------------------------------------
-  // The factory binds each module, applies its settings, then transfers
-  // ownership of the token, both registries and the compliance to `owner`.
-  await trexFactory.connect(deployer).deployTREXSuite(
-    SUITE_SALT,
-    {
-      owner: safe.address,
-      name: TOKEN_NAME,
-      symbol: TOKEN_SYMBOL,
-      decimals: TOKEN_DECIMALS,
-      irs: ethers.ZeroAddress,
-      ONCHAINID: ethers.ZeroAddress,
-      irAgents: [tokenAgent.address],
-      tokenAgents: [tokenAgent.address],
-      complianceModules: [
-        ...countryChunks.map(() => countryAllowAddress),
-        await maxBalanceModule.getAddress(),
-      ],
-      complianceSettings: [
-        ...countryChunks.map((chunk) =>
-          countryAllowModule.interface.encodeFunctionData('batchAllowCountries', [chunk]),
-        ),
-        maxBalanceModule.interface.encodeFunctionData('setMaxBalance', [MAX_BALANCE]),
-      ],
-    },
-    {
-      claimTopics: REQUIRED_CLAIM_TOPICS,
-      issuers: [await claimIssuerContract.getAddress()],
-      issuerClaims: [REQUIRED_CLAIM_TOPICS],
-    },
-  );
-
-  const token = await ethers.getContractAt('Token', await trexFactory.getToken(SUITE_SALT));
-  const identityRegistry = await ethers.getContractAt('IdentityRegistry', await token.identityRegistry());
-  const compliance = await ethers.getContractAt('ModularCompliance', await token.compliance());
-  const claimTopicsRegistry = await ethers.getContractAt(
-    'ClaimTopicsRegistry',
-    await identityRegistry.topicsRegistry(),
-  );
-  const trustedIssuersRegistry = await ethers.getContractAt(
-    'TrustedIssuersRegistry',
-    await identityRegistry.issuersRegistry(),
-  );
-  const identityRegistryStorage = await ethers.getContractAt(
-    'IdentityRegistryStorage',
-    await identityRegistry.identityStorage(),
-  );
+  const {
+    token,
+    identityRegistry,
+    identityRegistryStorage,
+    claimTopicsRegistry,
+    trustedIssuersRegistry,
+    compliance,
+    countryAllowModule,
+    maxBalanceModule,
+    trexFactory,
+    trexImplementationAuthority,
+    identityFactory,
+    identityImplementationAuthority,
+  } = deployed;
 
   // --- Investor identities --------------------------------------------------
   // alice and bob are fully verified in allowed jurisdictions. david is
@@ -278,7 +160,13 @@ export async function deployEqowaSuiteFixture() {
       compliance,
       claimIssuerContract,
     },
-    modules: { countryAllowModule, maxBalanceModule },
+    modules: {
+      countryAllowModule,
+      maxBalanceModule,
+      holderCountCapModule: deployed.holderCountCapModule,
+      timeLockupModule: deployed.timeLockupModule,
+      dailyMintCapModule: deployed.dailyMintCapModule,
+    },
     identities: { aliceIdentity, bobIdentity, davidIdentity },
     infrastructure: {
       trexFactory,
