@@ -11,8 +11,11 @@ to the Safe.
 1. Copy `.env.example` to `.env` on the deploy machine.
 2. Set `DEPLOYER_PRIVATE_KEY` for `0xbc21a3Bbe16A830834E6C3a069098AB11852e71C`.
 3. Set `POLYGONSCAN_API_KEY`.
-4. Fund that deployer with about 1.5 to 2 POL. `create-safe:amoy` needs 0.05 POL.
-   `deploy:amoy` needs 1.5 POL. Scripts refuse to broadcast below those floors.
+4. Fund that deployer with about 4 POL. The full deploy is roughly 41M gas.
+   Amoy has run between 25 and 80 gwei, so the real cost is 1 to 3.5 POL.
+   The scripts price the floor from the live gas price, add 30 percent, and
+   refuse to broadcast if the balance is short. Running out part way leaves a
+   half-deployed suite.
 5. Optional: set `CLAIM_ISSUER_ADDRESS`. If empty, deploy creates a ClaimIssuer
    whose management key is the deployer. Move that key after handover.
 
