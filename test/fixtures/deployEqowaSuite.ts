@@ -155,26 +155,27 @@ export async function deployEqowaSuiteFixture() {
     .addKey(addressKey(claimIssuerSigningKey.address), KEY_PURPOSE_CLAIM_SIGNER, KEY_TYPE_ECDSA);
 
   // --- Compliance modules ---------------------------------------------------
-  // Modules are upgradeable, so each implementation sits behind a ModuleProxy
-  // whose constructor runs initialize().
-  const countryAllowImpl = await ethers.deployContract('CountryAllowModule', [], deployer);
+  // First-party MIT modules sit behind ComplianceModuleProxy. Tokeny's
+  // CountryAllowModule and MaxBalanceModule are no longer deployed; both
+  // carry a NonCommercial clause the client asked us to leave unused.
+  const countryAllowImpl = await ethers.deployContract('CountryAllowlistModule', [], deployer);
   const countryAllowProxy = await ethers.deployContract(
-    'ModuleProxy',
+    'ComplianceModuleProxy',
     [await countryAllowImpl.getAddress(), countryAllowImpl.interface.encodeFunctionData('initialize')],
     deployer,
   );
   const countryAllowModule = await ethers.getContractAt(
-    'CountryAllowModule',
+    'CountryAllowlistModule',
     await countryAllowProxy.getAddress(),
   );
 
-  const maxBalanceImpl = await ethers.deployContract('MaxBalanceModule', [], deployer);
+  const maxBalanceImpl = await ethers.deployContract('BalanceCapModule', [], deployer);
   const maxBalanceProxy = await ethers.deployContract(
-    'ModuleProxy',
+    'ComplianceModuleProxy',
     [await maxBalanceImpl.getAddress(), maxBalanceImpl.interface.encodeFunctionData('initialize')],
     deployer,
   );
-  const maxBalanceModule = await ethers.getContractAt('MaxBalanceModule', await maxBalanceProxy.getAddress());
+  const maxBalanceModule = await ethers.getContractAt('BalanceCapModule', await maxBalanceProxy.getAddress());
 
   // --- Deploy the suite -----------------------------------------------------
   // The factory binds each module, applies its settings, then transfers

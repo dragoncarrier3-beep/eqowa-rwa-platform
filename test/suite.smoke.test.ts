@@ -61,9 +61,7 @@ describe('EQOWAG suite deployment', () => {
 
       expect(await modules.countryAllowModule.isCountryAllowed(complianceAddress, 566)).to.be.true; // Nigeria
       expect(await modules.countryAllowModule.isCountryAllowed(complianceAddress, 840)).to.be.false; // United States
-      expect(await modules.maxBalanceModule.getIDBalance(complianceAddress, await suite.token.getAddress())).to.equal(
-        0n,
-      );
+      expect(await modules.maxBalanceModule.getMaxBalance(complianceAddress)).to.equal(MAX_BALANCE);
     });
   });
 
