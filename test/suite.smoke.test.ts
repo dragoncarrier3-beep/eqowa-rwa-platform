@@ -1,7 +1,15 @@
 import { expect } from 'chai';
 import { loadFixture } from '@nomicfoundation/hardhat-network-helpers';
 
-import { MAX_BALANCE, ONE_SHARE, TOKEN_DECIMALS, TOKEN_NAME, TOKEN_SYMBOL } from '../config/eqowa';
+import {
+  DAILY_MINT_CAP,
+  MAX_BALANCE,
+  MAX_HOLDER_COUNT,
+  ONE_SHARE,
+  TOKEN_DECIMALS,
+  TOKEN_NAME,
+  TOKEN_SYMBOL,
+} from '../config/eqowa';
 import { deployEqowaSuiteFixture } from './fixtures/deployEqowaSuite';
 
 describe('EQOWAG suite deployment', () => {
@@ -47,11 +55,14 @@ describe('EQOWAG suite deployment', () => {
   });
 
   describe('compliance wiring', () => {
-    it('binds both Phase 1 modules to the compliance', async () => {
+    it('binds all five Phase 1 modules to the compliance', async () => {
       const { suite, modules } = await loadFixture(deployEqowaSuiteFixture);
 
       expect(await suite.compliance.isModuleBound(await modules.countryAllowModule.getAddress())).to.be.true;
       expect(await suite.compliance.isModuleBound(await modules.maxBalanceModule.getAddress())).to.be.true;
+      expect(await suite.compliance.isModuleBound(await modules.holderCountCapModule.getAddress())).to.be.true;
+      expect(await suite.compliance.isModuleBound(await modules.timeLockupModule.getAddress())).to.be.true;
+      expect(await suite.compliance.isModuleBound(await modules.dailyMintCapModule.getAddress())).to.be.true;
     });
 
     it('applies the module settings passed at deployment', async () => {
@@ -62,6 +73,10 @@ describe('EQOWAG suite deployment', () => {
       expect(await modules.countryAllowModule.isCountryAllowed(complianceAddress, 566)).to.be.true; // Nigeria
       expect(await modules.countryAllowModule.isCountryAllowed(complianceAddress, 840)).to.be.false; // United States
       expect(await modules.maxBalanceModule.getMaxBalance(complianceAddress)).to.equal(MAX_BALANCE);
+      expect(await modules.holderCountCapModule.getMaxHolderCount(complianceAddress)).to.equal(MAX_HOLDER_COUNT);
+      expect(await modules.dailyMintCapModule.getDailyMintCap(complianceAddress)).to.equal(DAILY_MINT_CAP);
+      // Fixture unlocks transfers so unit tests can mint and move in one block.
+      expect(await modules.timeLockupModule.getLockupDuration(complianceAddress)).to.equal(0n);
     });
   });
 
