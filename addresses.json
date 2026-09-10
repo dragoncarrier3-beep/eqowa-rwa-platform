@@ -1,0 +1,32 @@
+{
+  "version": "v0.1.0-m1",
+  "network": "polygon-amoy",
+  "chainId": 80002,
+  "explorer": "https://amoy.polygonscan.com",
+  "status": "not-deployed",
+  "token": {
+    "name": "EQOWA Group Shares",
+    "symbol": "EQOWAG",
+    "decimals": 6
+  },
+  "compliance": {
+    "maxBalanceShares": 150000,
+    "maxHolderCount": 500,
+    "lockupDays": 730,
+    "dailyMintCapShares": 250000,
+    "allowedCountryCount": 82,
+    "claimTopics": [1, 2]
+  },
+  "wallets": {
+    "deployer": "0xbc21a3Bbe16A830834E6C3a069098AB11852e71C",
+    "agent": "0xbbE038AA2406199FA565f58bbcfE2Fabaa0E6a26",
+    "safe": null,
+    "safeOwners": [
+      "0x50D22edFE63F2fCF012125A5E50640eE5a6cD196",
+      "0x10840351E6cC06f153931023E98C5895e60026dD",
+      "0x7C568dd505DFeDf60BA29Ae1245f642fB1d6156c"
+    ],
+    "safeThreshold": 2
+  },
+  "contracts": null
+}
