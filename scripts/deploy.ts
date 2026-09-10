@@ -1,6 +1,7 @@
 import { ethers, network } from 'hardhat';
 
 import { AGENT_WALLET_ADDRESS, DEPLOYER_ADDRESS } from '../config/wallets';
+import { assertAmoyDeployReady } from './lib/amoyPreflight';
 import { deployEqowaContracts, SUITE_SALT } from './lib/deployEqowaContracts';
 import { writeDeployment } from './lib/deploymentFile';
 
@@ -30,10 +31,16 @@ async function main() {
     throw new Error('Safe must not be the deployer');
   }
 
+  if (network.name === 'amoy') {
+    await assertAmoyDeployReady(ethers.provider, deployerAddress, safe);
+  }
+
   let claimIssuer = process.env.CLAIM_ISSUER_ADDRESS;
+  let claimIssuerManagementKey: string | undefined;
   if (!claimIssuer) {
     const issuer = await ethers.deployContract('ClaimIssuer', [deployerAddress], deployer);
     claimIssuer = await issuer.getAddress();
+    claimIssuerManagementKey = deployerAddress;
     console.log('Deployed ClaimIssuer (management key = deployer, move later):', claimIssuer);
   } else {
     claimIssuer = ethers.getAddress(claimIssuer);
@@ -76,12 +83,14 @@ async function main() {
       timeLockup: await suite.timeLockupModule.getAddress(),
       dailyMintCap: await suite.dailyMintCapModule.getAddress(),
     },
+    implementations: suite.implementations,
+    claimIssuerManagementKey,
   });
 
   console.log('EQOWAG suite deployed. Ownership is still the deployer.');
   console.log('Wrote', filePath);
   console.log('Token', await suite.token.getAddress());
-  console.log('Next: npm run transfer-ownership:amoy');
+  console.log('Next: npm run verify:amoy && npm run transfer-ownership:amoy');
 }
 
 main().catch((error) => {

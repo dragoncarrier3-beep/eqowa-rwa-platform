@@ -26,6 +26,21 @@ export type EqowaDeployment = {
     timeLockup: string;
     dailyMintCap: string;
   };
+  implementations: {
+    token: string;
+    claimTopicsRegistry: string;
+    trustedIssuersRegistry: string;
+    identityRegistry: string;
+    identityRegistryStorage: string;
+    modularCompliance: string;
+    countryAllowlist: string;
+    balanceCap: string;
+    holderCountCap: string;
+    timeLockup: string;
+    dailyMintCap: string;
+  };
+  /** Set when deploy.ts created the ClaimIssuer. Used for Polygonscan verify. */
+  claimIssuerManagementKey?: string;
 };
 
 export function deploymentPath(network: string): string {

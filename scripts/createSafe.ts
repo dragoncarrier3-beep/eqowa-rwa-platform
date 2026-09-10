@@ -7,6 +7,7 @@ import {
   DEPLOYER_ADDRESS,
   SAFE_V141,
 } from '../config/wallets';
+import { MIN_SAFE_CREATE_WEI, assertDeployerFunded } from './lib/amoyPreflight';
 
 const FACTORY_ABI = [
   'function createProxyWithNonce(address _singleton, bytes initializer, uint256 saltNonce) returns (address proxy)',
@@ -58,6 +59,8 @@ async function main() {
   if (ethers.getAddress(deployerAddress) !== ethers.getAddress(DEPLOYER_ADDRESS)) {
     throw new Error(`Deployer key does not match ${DEPLOYER_ADDRESS}`);
   }
+
+  await assertDeployerFunded(ethers.provider, deployerAddress, MIN_SAFE_CREATE_WEI, 'create-safe:amoy');
 
   const owners = assertSafeOwners();
   const factory = new ethers.Contract(SAFE_V141.proxyFactory, FACTORY_ABI, deployer);

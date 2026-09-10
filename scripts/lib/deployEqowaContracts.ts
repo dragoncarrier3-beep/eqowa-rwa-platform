@@ -37,13 +37,17 @@ export type DeployEqowaParams = {
 
 async function deployModule(name: string, proxyName: 'ModuleProxy' | 'ComplianceModuleProxy', deployer: Signer) {
   const implementation = await ethers.deployContract(name, [], deployer);
+  const implementationAddress = await implementation.getAddress();
   const proxy = await ethers.deployContract(
     proxyName,
-    [await implementation.getAddress(), implementation.interface.encodeFunctionData('initialize')],
+    [implementationAddress, implementation.interface.encodeFunctionData('initialize')],
     deployer,
   );
 
-  return ethers.getContractAt(name, await proxy.getAddress());
+  return {
+    module: await ethers.getContractAt(name, await proxy.getAddress()),
+    implementation: implementationAddress,
+  };
 }
 
 /**
@@ -113,11 +117,16 @@ export async function deployEqowaContracts(params: DeployEqowaParams) {
     identityFactory.connect(deployer) as unknown as { addTokenFactory: (factory: string) => Promise<unknown> }
   ).addTokenFactory(await trexFactory.getAddress());
 
-  const countryAllowModule = await deployModule('CountryAllowlistModule', 'ComplianceModuleProxy', deployer);
-  const maxBalanceModule = await deployModule('BalanceCapModule', 'ComplianceModuleProxy', deployer);
-  const holderCountCapModule = await deployModule('HolderCountCapModule', 'ModuleProxy', deployer);
-  const timeLockupModule = await deployModule('TimeLockupModule', 'ModuleProxy', deployer);
-  const dailyMintCapModule = await deployModule('DailyMintCapModule', 'ComplianceModuleProxy', deployer);
+  const countryAllow = await deployModule('CountryAllowlistModule', 'ComplianceModuleProxy', deployer);
+  const maxBalance = await deployModule('BalanceCapModule', 'ComplianceModuleProxy', deployer);
+  const holderCountCap = await deployModule('HolderCountCapModule', 'ModuleProxy', deployer);
+  const timeLockup = await deployModule('TimeLockupModule', 'ModuleProxy', deployer);
+  const dailyMintCap = await deployModule('DailyMintCapModule', 'ComplianceModuleProxy', deployer);
+  const countryAllowModule = countryAllow.module;
+  const maxBalanceModule = maxBalance.module;
+  const holderCountCapModule = holderCountCap.module;
+  const timeLockupModule = timeLockup.module;
+  const dailyMintCapModule = dailyMintCap.module;
 
   const countryAllowAddress = await countryAllowModule.getAddress();
   const countryChunks = chunkCountries(ALLOWED_COUNTRIES);
@@ -189,5 +198,18 @@ export async function deployEqowaContracts(params: DeployEqowaParams) {
     trexImplementationAuthority,
     identityFactory,
     identityImplementationAuthority,
+    implementations: {
+      token: await tokenImpl.getAddress(),
+      claimTopicsRegistry: await claimTopicsRegistryImpl.getAddress(),
+      trustedIssuersRegistry: await trustedIssuersRegistryImpl.getAddress(),
+      identityRegistry: await identityRegistryImpl.getAddress(),
+      identityRegistryStorage: await identityRegistryStorageImpl.getAddress(),
+      modularCompliance: await modularComplianceImpl.getAddress(),
+      countryAllowlist: countryAllow.implementation,
+      balanceCap: maxBalance.implementation,
+      holderCountCap: holderCountCap.implementation,
+      timeLockup: timeLockup.implementation,
+      dailyMintCap: dailyMintCap.implementation,
+    },
   };
 }
