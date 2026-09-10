@@ -38,10 +38,8 @@ export const LOCKUP_DURATION_SECONDS = 730n * 24n * 60n * 60n;
 export const DAILY_MINT_CAP = 250_000n * ONE_SHARE;
 
 /**
- * ISO 3166-1 numeric country codes. T-REX stores an investor's country as a
- * uint16 on the identity registry and the compliance modules compare against
- * it. Only the subset needed by the test suite is listed here; the full
- * production allow-list is assembled in M1-07.
+ * ISO 3166-1 numeric codes used by tests when registering identities.
+ * The production allow-list lives in `config/countries.ts`.
  */
 export const COUNTRY = {
   NIGERIA: 566,
@@ -54,13 +52,10 @@ export const COUNTRY = {
   UNITED_STATES: 840,
 } as const;
 
-/** Placeholder allow-list used by the test fixture. Superseded in M1-07. */
-export const TEST_ALLOWED_COUNTRIES = [
-  COUNTRY.NIGERIA,
-  COUNTRY.GHANA,
-  COUNTRY.KENYA,
-  COUNTRY.SOUTH_AFRICA,
-  COUNTRY.UNITED_KINGDOM,
-  COUNTRY.GERMANY,
-  COUNTRY.FRANCE,
-];
+export {
+  AFRICAN_UNION_COUNTRIES,
+  ALLOWED_COUNTRIES,
+  COUNTRY_ALLOW_BATCH_SIZE,
+  EU27_COUNTRIES,
+  chunkCountries,
+} from './countries';

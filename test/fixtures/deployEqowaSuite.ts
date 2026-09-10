@@ -4,13 +4,14 @@ import type { HardhatEthersSigner } from '@nomicfoundation/hardhat-ethers/signer
 import type { BaseContract } from 'ethers';
 
 import {
+  ALLOWED_COUNTRIES,
   COUNTRY,
   MAX_BALANCE,
   REQUIRED_CLAIM_TOPICS,
-  TEST_ALLOWED_COUNTRIES,
   TOKEN_DECIMALS,
   TOKEN_NAME,
   TOKEN_SYMBOL,
+  chunkCountries,
 } from '../../config/eqowa';
 
 /** Salt used by the factory's CREATE2 deployment of the EQOWAG suite. */
@@ -176,6 +177,10 @@ export async function deployEqowaSuiteFixture() {
     deployer,
   );
   const maxBalanceModule = await ethers.getContractAt('BalanceCapModule', await maxBalanceProxy.getAddress());
+  const countryAllowAddress = await countryAllowModule.getAddress();
+  // One factory action per chunk. The factory binds the module on the first
+  // occurrence and then calls each encoded batch in order.
+  const countryChunks = chunkCountries(ALLOWED_COUNTRIES);
 
   // --- Deploy the suite -----------------------------------------------------
   // The factory binds each module, applies its settings, then transfers
@@ -191,9 +196,14 @@ export async function deployEqowaSuiteFixture() {
       ONCHAINID: ethers.ZeroAddress,
       irAgents: [tokenAgent.address],
       tokenAgents: [tokenAgent.address],
-      complianceModules: [await countryAllowModule.getAddress(), await maxBalanceModule.getAddress()],
+      complianceModules: [
+        ...countryChunks.map(() => countryAllowAddress),
+        await maxBalanceModule.getAddress(),
+      ],
       complianceSettings: [
-        countryAllowModule.interface.encodeFunctionData('batchAllowCountries', [TEST_ALLOWED_COUNTRIES]),
+        ...countryChunks.map((chunk) =>
+          countryAllowModule.interface.encodeFunctionData('batchAllowCountries', [chunk]),
+        ),
         maxBalanceModule.interface.encodeFunctionData('setMaxBalance', [MAX_BALANCE]),
       ],
     },
