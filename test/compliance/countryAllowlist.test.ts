@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import { loadFixture } from '@nomicfoundation/hardhat-network-helpers';
 
-import { COUNTRY, ONE_SHARE } from '../../config/eqowa';
+import { ALLOWED_COUNTRIES, COUNTRY, ONE_SHARE } from '../../config/eqowa';
 import { deployEqowaSuiteFixture } from '../fixtures/deployEqowaSuite';
 
 async function deployWithCountryAllowlist() {
@@ -55,6 +55,17 @@ describe('CountryAllowlistModule', () => {
 
     await suite.token.connect(accounts.tokenAgent).mint(accounts.david.address, ONE_SHARE);
     expect(await suite.token.balanceOf(accounts.david.address)).to.equal(ONE_SHARE);
+  });
+
+  it('applies the full production allow-list through chunked factory calls', async () => {
+    const { suite, modules } = await loadFixture(deployWithCountryAllowlist);
+    const complianceAddress = await suite.compliance.getAddress();
+
+    for (const country of ALLOWED_COUNTRIES) {
+      expect(await modules.countryAllowModule.isCountryAllowed(complianceAddress, country)).to.be.true;
+    }
+
+    expect(await modules.countryAllowModule.isCountryAllowed(complianceAddress, COUNTRY.UNITED_STATES)).to.be.false;
   });
 
   it('rejects addAllowedCountry called directly rather than through the compliance', async () => {
