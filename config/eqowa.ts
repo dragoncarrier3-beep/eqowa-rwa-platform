@@ -31,6 +31,13 @@ export const MAX_HOLDER_COUNT = 500n;
 export const LOCKUP_DURATION_SECONDS = 730n * 24n * 60n * 60n;
 
 /**
+ * Maximum mintable across the whole token within any rolling 24 hours.
+ * Global rather than per investor, so it bounds total issuance velocity and
+ * contains the damage from a batch-minting error or a compromised agent key.
+ */
+export const DAILY_MINT_CAP = 250_000n * ONE_SHARE;
+
+/**
  * ISO 3166-1 numeric country codes. T-REX stores an investor's country as a
  * uint16 on the identity registry and the compliance modules compare against
  * it. Only the subset needed by the test suite is listed here; the full
