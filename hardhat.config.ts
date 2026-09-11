@@ -2,6 +2,8 @@ import { HardhatUserConfig } from 'hardhat/config';
 import '@nomicfoundation/hardhat-toolbox';
 import * as dotenv from 'dotenv';
 
+import { AMOY_GAS_PRICE_WEI } from './config/amoyFees';
+
 dotenv.config();
 
 const AMOY_RPC_URL = process.env.AMOY_RPC_URL ?? 'https://rpc-amoy.polygon.technology';
@@ -26,6 +28,9 @@ const config: HardhatUserConfig = {
       url: AMOY_RPC_URL,
       chainId: 80002,
       accounts: DEPLOYER_PRIVATE_KEY ? [DEPLOYER_PRIVATE_KEY] : [],
+      // See config/amoyFees.ts. Left to itself the provider would price this
+      // deploy off a spam-inflated eth_gasPrice.
+      gasPrice: Number(AMOY_GAS_PRICE_WEI),
     },
   },
   etherscan: {

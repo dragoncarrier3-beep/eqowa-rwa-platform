@@ -1,6 +1,8 @@
 import { ethers } from 'hardhat';
 import type { Provider } from 'ethers';
 
+import { AMOY_GAS_PRICE_WEI } from '../../config/amoyFees';
+
 /**
  * Gas for the whole deploy: six T-REX implementations, ONCHAINID, the factory,
  * five modules behind proxies, `deployTREXSuite` and the unpause. Measured at
@@ -12,30 +14,23 @@ export const DEPLOY_GAS_ESTIMATE = 41_000_000n;
 export const SAFE_CREATE_GAS_ESTIMATE = 400_000n;
 
 /**
- * Amoy gas has swung between 25 and 80 gwei. The floor is computed from the
- * live price rather than hardcoded, then padded, because running out of gas
- * part way through leaves a half-deployed suite behind.
+ * Covers drift in the gas estimate only. The price side needs no margin
+ * because it is pinned rather than quoted by the network.
  */
-export const SAFETY_MARGIN_PERCENT = 30n;
+export const GAS_ESTIMATE_MARGIN_PERCENT = 15n;
 
-export async function requiredWei(provider: Provider, gasUnits: bigint): Promise<bigint> {
-  const feeData = await provider.getFeeData();
-  const gasPrice = feeData.maxFeePerGas ?? feeData.gasPrice;
-
-  if (!gasPrice) {
-    throw new Error('Could not read a gas price from the network');
-  }
-
-  return (gasUnits * gasPrice * (100n + SAFETY_MARGIN_PERCENT)) / 100n;
+/** Cost of `gasUnits` at the pinned Amoy gas price. */
+export function requiredWei(gasUnits: bigint): bigint {
+  return (gasUnits * AMOY_GAS_PRICE_WEI * (100n + GAS_ESTIMATE_MARGIN_PERCENT)) / 100n;
 }
 
 export async function assertDeployerFunded(provider: Provider, deployer: string, gasUnits: bigint, label: string) {
-  const [balance, needed] = await Promise.all([provider.getBalance(deployer), requiredWei(provider, gasUnits)]);
+  const balance = await provider.getBalance(deployer);
+  const needed = requiredWei(gasUnits);
 
   if (balance < needed) {
     throw new Error(
-      `${label} needs about ${ethers.formatEther(needed)} POL at the current gas price. ` +
-        `Deployer has ${ethers.formatEther(balance)}.`,
+      `${label} needs about ${ethers.formatEther(needed)} POL. Deployer has ${ethers.formatEther(balance)}.`,
     );
   }
 }

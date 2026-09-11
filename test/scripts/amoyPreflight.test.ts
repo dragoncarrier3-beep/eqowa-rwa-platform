@@ -1,6 +1,7 @@
 import { expect } from 'chai';
 import { ethers } from 'hardhat';
 
+import { AMOY_GAS_PRICE_GWEI } from '../../config/amoyFees';
 import {
   DEPLOY_GAS_ESTIMATE,
   SAFE_CREATE_GAS_ESTIMATE,
@@ -17,12 +18,15 @@ describe('Amoy deploy preflight', () => {
     await expect(assertSafeDeployed(ethers.provider, empty.address)).to.be.rejectedWith('has no code');
   });
 
-  it('prices the deploy from the live gas price, with a margin', async () => {
-    const feeData = await ethers.provider.getFeeData();
-    const gasPrice = feeData.maxFeePerGas ?? feeData.gasPrice ?? 0n;
-    const needed = await requiredWei(ethers.provider, DEPLOY_GAS_ESTIMATE);
+  it('prices the deploy under two POL at the pinned gas price', () => {
+    const needed = requiredWei(DEPLOY_GAS_ESTIMATE);
 
-    expect(needed).to.equal((DEPLOY_GAS_ESTIMATE * gasPrice * 130n) / 100n);
+    expect(needed).to.equal((DEPLOY_GAS_ESTIMATE * AMOY_GAS_PRICE_GWEI * 10n ** 9n * 115n) / 100n);
+    expect(needed).to.be.lessThan(ethers.parseEther('2'));
+  });
+
+  it('stays above the 25 gwei floor Bor enforces', () => {
+    expect(AMOY_GAS_PRICE_GWEI).to.be.greaterThan(25n);
   });
 
   it('rejects a deployer that cannot cover the deploy', async () => {
@@ -42,7 +46,7 @@ describe('Amoy deploy preflight', () => {
     await assertAmoyDeployReady(ethers.provider, deployer.address, await placeholder.getAddress());
   });
 
-  it('keeps the measured gas estimate for the full suite', async () => {
+  it('keeps the measured gas estimate for the full suite', () => {
     // Measured at 40,757,565 gas locally. Raise this if the suite grows.
     expect(DEPLOY_GAS_ESTIMATE).to.equal(41_000_000n);
   });
