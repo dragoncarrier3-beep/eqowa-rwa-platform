@@ -1,17 +1,36 @@
 import { ethers } from 'hardhat';
 import type { Provider } from 'ethers';
 
-/** Floor for `create-safe:amoy`. The factory call is cheap; this is a buffer. */
-export const MIN_SAFE_CREATE_WEI = ethers.parseEther('0.05');
+import { AMOY_GAS_PRICE_WEI } from '../../config/amoyFees';
 
-/** Floor for `deploy:amoy`. The suite, five modules and unpause need headroom. */
-export const MIN_DEPLOY_WEI = ethers.parseEther('1.5');
+/**
+ * Gas for the whole deploy: six T-REX implementations, ONCHAINID, the factory,
+ * five modules behind proxies, `deployTREXSuite` and the unpause. Measured at
+ * 40.76M against the local network on 10 September 2026.
+ */
+export const DEPLOY_GAS_ESTIMATE = 41_000_000n;
 
-export async function assertDeployerFunded(provider: Provider, deployer: string, minWei: bigint, label: string) {
+/** One `createProxyWithNonce` call against the Safe 1.4.1 factory. */
+export const SAFE_CREATE_GAS_ESTIMATE = 400_000n;
+
+/**
+ * Covers drift in the gas estimate only. The price side needs no margin
+ * because it is pinned rather than quoted by the network.
+ */
+export const GAS_ESTIMATE_MARGIN_PERCENT = 15n;
+
+/** Cost of `gasUnits` at the pinned Amoy gas price. */
+export function requiredWei(gasUnits: bigint): bigint {
+  return (gasUnits * AMOY_GAS_PRICE_WEI * (100n + GAS_ESTIMATE_MARGIN_PERCENT)) / 100n;
+}
+
+export async function assertDeployerFunded(provider: Provider, deployer: string, gasUnits: bigint, label: string) {
   const balance = await provider.getBalance(deployer);
-  if (balance < minWei) {
+  const needed = requiredWei(gasUnits);
+
+  if (balance < needed) {
     throw new Error(
-      `${label} needs at least ${ethers.formatEther(minWei)} POL. Deployer has ${ethers.formatEther(balance)}.`,
+      `${label} needs about ${ethers.formatEther(needed)} POL. Deployer has ${ethers.formatEther(balance)}.`,
     );
   }
 }
@@ -23,8 +42,8 @@ export async function assertSafeDeployed(provider: Provider, safe: string) {
   }
 }
 
-/** Deployer has POL and the Amoy Safe already exists. */
+/** Deployer can pay for the whole deploy and the Amoy Safe already exists. */
 export async function assertAmoyDeployReady(provider: Provider, deployer: string, safe: string) {
   await assertSafeDeployed(provider, safe);
-  await assertDeployerFunded(provider, deployer, MIN_DEPLOY_WEI, 'deploy:amoy');
+  await assertDeployerFunded(provider, deployer, DEPLOY_GAS_ESTIMATE, 'deploy:amoy');
 }

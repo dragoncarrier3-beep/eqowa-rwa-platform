@@ -11,8 +11,18 @@ to the Safe.
 1. Copy `.env.example` to `.env` on the deploy machine.
 2. Set `DEPLOYER_PRIVATE_KEY` for `0xbc21a3Bbe16A830834E6C3a069098AB11852e71C`.
 3. Set `POLYGONSCAN_API_KEY`.
-4. Fund that deployer with about 1.5 to 2 POL. `create-safe:amoy` needs 0.05 POL.
-   `deploy:amoy` needs 1.5 POL. Scripts refuse to broadcast below those floors.
+4. Fund that deployer with 2 POL. The full deploy measures 40,757,565 gas at the
+   30 gwei pinned in `config/amoyFees.ts`, so it costs about 1.22 POL and the
+   preflight floor is 1.41. `create-safe:amoy` is only about 400,000 gas,
+   roughly 0.014 POL, so the Safe can be created long before the rest of the
+   gas arrives.
+
+   Do not let the wallet auto-price these transactions. The Amoy base fee is
+   effectively zero but `eth_gasPrice` reports whatever spam is paying, seen at
+   79 gwei, which would put the deploy over 3 POL. The scripts refuse to
+   broadcast below the floor, because running out part way leaves a
+   half-deployed suite.
+
 5. Optional: set `CLAIM_ISSUER_ADDRESS`. If empty, deploy creates a ClaimIssuer
    whose management key is the deployer. Move that key after handover.
 
