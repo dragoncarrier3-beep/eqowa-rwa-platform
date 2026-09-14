@@ -9,13 +9,16 @@
     "test": "hardhat test",
     "coverage": "hardhat coverage",
     "lint:sol": "solhint --max-warnings 0 \"contracts/**/*.sol\"",
-    "format": "prettier --write \"contracts/**/*.sol\" \"test/**/*.ts\" \"scripts/**/*.ts\"",
-    "format:check": "prettier --check \"contracts/**/*.sol\" \"test/**/*.ts\" \"scripts/**/*.ts\"",
+    "format": "prettier --write \"contracts/**/*.sol\" \"test/**/*.ts\" \"scripts/**/*.ts\" \"config/**/*.ts\" \"apps/api/src/**/*.ts\"",
+    "format:check": "prettier --check \"contracts/**/*.sol\" \"test/**/*.ts\" \"scripts/**/*.ts\" \"config/**/*.ts\" \"apps/api/src/**/*.ts\"",
     "deploy:amoy": "hardhat run scripts/deploy.ts --network amoy",
     "create-safe:amoy": "hardhat run scripts/createSafe.ts --network amoy",
     "transfer-ownership:amoy": "hardhat run scripts/transferOwnership.ts --network amoy",
     "verify:amoy": "hardhat run scripts/verify.ts --network amoy",
-    "publish-addresses": "hardhat run scripts/publishAddresses.ts --network amoy"
+    "publish-addresses": "hardhat run scripts/publishAddresses.ts --network amoy",
+    "api:dev": "npm --prefix apps/api run dev",
+    "api:test": "npm --prefix apps/api test",
+    "api:migrate": "npm --prefix apps/api run migrate"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
