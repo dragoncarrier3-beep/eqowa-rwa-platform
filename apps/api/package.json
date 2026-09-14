@@ -1,0 +1,25 @@
+{
+  "name": "@eqowa/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Eqowa settlement API, indexer and payment-to-mint pipeline.",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "migrate": "tsx src/db/migrate.ts",
+    "test": "tsx --test src/schema.test.ts"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "eqowa-rwa-platform": "file:../..",
+    "fastify": "^5.0.0",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3"
+  }
+}

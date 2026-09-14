@@ -10,8 +10,49 @@ export const TOKEN_NAME = 'EQOWA Group Shares';
 export const TOKEN_SYMBOL = 'EQOWAG';
 export const TOKEN_DECIMALS = 6;
 
+/** Native Polygon USDT also uses 6 decimals. */
+export const USDT_DECIMALS = 6;
+
 /** One whole share expressed in base units. */
 export const ONE_SHARE = 10n ** BigInt(TOKEN_DECIMALS);
+
+/** One whole USDT expressed in base units. */
+export const ONE_USDT = 10n ** BigInt(USDT_DECIMALS);
+
+/**
+ * Investor pay-in per share, confirmed 14 September 2026.
+ * 4 USDT is offering funds, 1 USDT is the Eqowa Fintech fee.
+ */
+export const FUNDS_PER_SHARE_USDT = 4n * ONE_USDT;
+export const FEE_PER_SHARE_USDT = 1n * ONE_USDT;
+export const SHARE_PRICE_USDT = FUNDS_PER_SHARE_USDT + FEE_PER_SHARE_USDT;
+
+export function shareBaseUnits(shares: bigint): bigint {
+  return shares * ONE_SHARE;
+}
+
+/**
+ * Split a USDT deposit into whole shares, funds, fee and leftover.
+ * Leftover is never minted. The payment pipeline records it as an exception.
+ */
+export function splitUsdtDeposit(usdtAmount: bigint): {
+  shares: bigint;
+  funds: bigint;
+  fee: bigint;
+  remainder: bigint;
+} {
+  if (usdtAmount < 0n) {
+    throw new Error('USDT amount must be non-negative');
+  }
+
+  const shares = usdtAmount / SHARE_PRICE_USDT;
+  return {
+    shares,
+    funds: shares * FUNDS_PER_SHARE_USDT,
+    fee: shares * FEE_PER_SHARE_USDT,
+    remainder: usdtAmount % SHARE_PRICE_USDT,
+  };
+}
 
 /**
  * Claim topics an investor must hold before the identity registry considers
