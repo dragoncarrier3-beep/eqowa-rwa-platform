@@ -18,7 +18,8 @@
     "publish-addresses": "hardhat run scripts/publishAddresses.ts --network amoy",
     "api:dev": "npm --prefix apps/api run dev",
     "api:test": "npm --prefix apps/api test",
-    "api:migrate": "npm --prefix apps/api run migrate"
+    "api:migrate": "npm --prefix apps/api run migrate",
+    "api:index": "npm --prefix apps/api run index"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
