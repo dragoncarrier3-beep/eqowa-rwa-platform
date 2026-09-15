@@ -16,8 +16,15 @@ CREATE TABLE IF NOT EXISTS identities (
   onchainid_address TEXT NOT NULL UNIQUE,
   country_code INTEGER,
   kyc_status TEXT NOT NULL DEFAULT 'pending',
+  sumsub_applicant_id TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE identities ADD COLUMN IF NOT EXISTS sumsub_applicant_id TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS identities_sumsub_applicant_id_uidx
+  ON identities (sumsub_applicant_id)
+  WHERE sumsub_applicant_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS assets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -86,6 +93,18 @@ CREATE TABLE IF NOT EXISTS audit_log (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS kyc_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  applicant_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  review_answer TEXT,
+  country_code INTEGER,
+  status TEXT NOT NULL,
+  payload JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS transactions_block_number_idx ON transactions (block_number);
 CREATE INDEX IF NOT EXISTS exceptions_status_idx ON exceptions (status);
 CREATE INDEX IF NOT EXISTS mint_intents_status_idx ON mint_intents (status);
+CREATE INDEX IF NOT EXISTS kyc_events_applicant_id_idx ON kyc_events (applicant_id);

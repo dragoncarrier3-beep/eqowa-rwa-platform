@@ -4,13 +4,24 @@ import test from 'node:test';
 import { loadSchemaSql } from './db/migrate.ts';
 import { buildApp } from './index.ts';
 
-const TABLES = ['users', 'identities', 'assets', 'transactions', 'deposits', 'mint_intents', 'exceptions', 'audit_log'];
+const TABLES = [
+  'users',
+  'identities',
+  'assets',
+  'transactions',
+  'deposits',
+  'mint_intents',
+  'exceptions',
+  'audit_log',
+  'kyc_events',
+];
 
 test('schema defines the Milestone 2 tables', () => {
   const sql = loadSchemaSql();
   for (const table of TABLES) {
     assert.match(sql, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}`));
   }
+  assert.match(sql, /sumsub_applicant_id/);
 });
 
 test('GET /health does not need a database', async () => {
