@@ -3,6 +3,7 @@ import OnchainID from '@onchain-id/solidity';
 import type { HardhatEthersSigner } from '@nomicfoundation/hardhat-ethers/signers';
 import type { BaseContract } from 'ethers';
 
+import { CLAIM_DATA, CLAIM_SCHEME_ECDSA, signClaim } from '../../config/claims';
 import { COUNTRY, REQUIRED_CLAIM_TOPICS } from '../../config/eqowa';
 import { deployEqowaContracts, SUITE_SALT } from '../../scripts/lib/deployEqowaContracts';
 
@@ -13,7 +14,7 @@ const KEY_PURPOSE_CLAIM_SIGNER = 3;
 const KEY_TYPE_ECDSA = 1;
 
 /** Deploys an ONCHAINID identity proxy controlled by `managementKey`. */
-async function deployIdentityProxy(
+export async function deployIdentityProxy(
   implementationAuthority: string,
   managementKey: string,
   signer: HardhatEthersSigner,
@@ -39,7 +40,7 @@ function addressKey(address: string): string {
  * identity. The digest format is fixed by ONCHAINID: keccak256 over the
  * encoded identity address, topic and data, signed as an eth_sign message.
  */
-async function issueClaim(params: {
+export async function issueClaim(params: {
   identity: BaseContract;
   identityOwner: HardhatEthersSigner;
   claimIssuer: BaseContract;
@@ -47,21 +48,15 @@ async function issueClaim(params: {
   topic: bigint;
 }) {
   const { identity, identityOwner, claimIssuer, signingKey, topic } = params;
-
   const identityAddress = await identity.getAddress();
-  const data = ethers.hexlify(ethers.toUtf8Bytes('Verified by Eqowa compliance.'));
-
-  const digest = ethers.keccak256(
-    ethers.AbiCoder.defaultAbiCoder().encode(['address', 'uint256', 'bytes'], [identityAddress, topic, data]),
-  );
-  const signature = await signingKey.signMessage(ethers.getBytes(digest));
+  const signature = await signClaim(signingKey, identityAddress, topic);
 
   await (identity.connect(identityOwner) as any).addClaim(
     topic,
-    1, // scheme: ECDSA
+    CLAIM_SCHEME_ECDSA,
     await claimIssuer.getAddress(),
     signature,
-    data,
+    CLAIM_DATA,
     '',
   );
 }

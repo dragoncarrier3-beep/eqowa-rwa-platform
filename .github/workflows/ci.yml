@@ -39,3 +39,9 @@ jobs:
 
       - name: Run tests
         run: npx hardhat test
+
+      - name: Install API dependencies
+        run: npm --prefix apps/api ci
+
+      - name: Run API tests
+        run: npm run api:test

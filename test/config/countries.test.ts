@@ -10,6 +10,7 @@ import {
   chunkCountries,
 } from '../../config/countries';
 import { COUNTRY } from '../../config/eqowa';
+import { parseCountryCode } from '../../config/iso3166';
 
 describe('production country allow-list', () => {
   it('is 54 AU + EU27 + GB, with no duplicates', async () => {
@@ -26,6 +27,14 @@ describe('production country allow-list', () => {
     expect(ALLOWED_COUNTRIES).to.include(UNITED_KINGDOM);
     expect(ALLOWED_COUNTRIES).to.not.include(UNITED_STATES);
     expect(ALLOWED_COUNTRIES).to.not.include(732);
+  });
+
+  it('maps Sumsub ISO codes for every allow-list country and the blocked US', () => {
+    for (const code of ALLOWED_COUNTRIES) {
+      expect(parseCountryCode(code), `missing ISO row for ${code}`).to.equal(code);
+    }
+    expect(parseCountryCode('US')).to.equal(UNITED_STATES);
+    expect(parseCountryCode('NGA')).to.equal(COUNTRY.NIGERIA);
   });
 
   it('splits into batches the factory can apply one call at a time', async () => {
