@@ -22,6 +22,8 @@ test('schema defines the Milestone 2 tables', () => {
     assert.match(sql, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}`));
   }
   assert.match(sql, /sumsub_applicant_id/);
+  assert.match(sql, /remainder_amount/);
+  assert.match(sql, /wallet_address/);
 });
 
 test('GET /health does not need a database', async () => {
