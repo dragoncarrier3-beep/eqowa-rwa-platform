@@ -2,6 +2,7 @@ import { expect } from 'chai';
 import { ethers } from 'hardhat';
 import { loadFixture } from '@nomicfoundation/hardhat-network-helpers';
 
+import { encodeEscrowDeposit, FORWARD_REQUEST_TYPES, forwarderDomain } from '../../config/forwarder';
 import { ONE_USDT } from '../../config/eqowa';
 
 const INTENT = ethers.id('intent-1');
@@ -96,7 +97,7 @@ describe('Escrow', () => {
 
     await usdt.connect(investor).approve(escrowAddress, amount);
 
-    const data = escrow.interface.encodeFunctionData('deposit', [INTENT, amount]);
+    const data = encodeEscrowDeposit(INTENT, amount);
     const request = {
       from: investor.address,
       to: escrowAddress,
@@ -106,23 +107,8 @@ describe('Escrow', () => {
       data,
     };
 
-    const domain = {
-      name: 'MinimalForwarder',
-      version: '0.0.1',
-      chainId: (await ethers.provider.getNetwork()).chainId,
-      verifyingContract: await forwarder.getAddress(),
-    };
-    const types = {
-      ForwardRequest: [
-        { name: 'from', type: 'address' },
-        { name: 'to', type: 'address' },
-        { name: 'value', type: 'uint256' },
-        { name: 'gas', type: 'uint256' },
-        { name: 'nonce', type: 'uint256' },
-        { name: 'data', type: 'bytes' },
-      ],
-    };
-    const signature = await investor.signTypedData(domain, types, request);
+    const domain = forwarderDomain((await ethers.provider.getNetwork()).chainId, await forwarder.getAddress());
+    const signature = await investor.signTypedData(domain, FORWARD_REQUEST_TYPES, request);
 
     await forwarder.connect(relayer).execute(request, signature);
 

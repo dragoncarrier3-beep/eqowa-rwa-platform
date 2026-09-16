@@ -100,12 +100,15 @@ export async function recordMintDeposit(params: { input: DepositInput; store: Mi
   return { deposit: saved, duplicate: false as const };
 }
 
+export type ExecuteMint = (call: { to: string; shareAmount: bigint; intentId: string }) => Promise<string | void>;
+
 export async function settleMintQuote(params: {
   intentId: string;
   store: MintStore;
   identities: IdentityStore;
   now: Date;
   currentBlock: number;
+  mint?: ExecuteMint;
 }) {
   const quote = await params.store.getQuote(params.intentId);
   if (!quote) {
@@ -161,6 +164,29 @@ export async function settleMintQuote(params: {
     return { quote: serializeQuote({ ...quote, status: 'rejected', rejectReason: decision.reason }), decision };
   }
 
+  let txHash: string | undefined;
+  if (params.mint) {
+    try {
+      const hash = await params.mint({
+        to: quote.wallet,
+        shareAmount: decision.shareAmount,
+        intentId: params.intentId,
+      });
+      txHash = hash ?? undefined;
+    } catch (error) {
+      await params.store.addException({
+        kind: 'mint_failed',
+        intentId: params.intentId,
+        details: { reason: error instanceof Error ? error.message : 'mint failed' },
+      });
+      return {
+        error: 'mint_failed' as const,
+        quote: serializeQuote(quote),
+        reason: error instanceof Error ? error.message : 'mint failed',
+      };
+    }
+  }
+
   await params.store.setQuoteStatus(params.intentId, 'minted');
   if (decision.remainderAmount > 0n) {
     await params.store.addException({
@@ -180,6 +206,7 @@ export async function settleMintQuote(params: {
       fundsAmount: decision.fundsAmount.toString(),
       feeAmount: decision.feeAmount.toString(),
       remainderAmount: decision.remainderAmount.toString(),
+      txHash,
     },
   };
 }
