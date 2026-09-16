@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 
 import dotenv from 'dotenv';
 import Fastify, { type FastifyRequest } from 'fastify';
+import { JsonRpcProvider } from 'ethers';
 import pg from 'pg';
 
 import { applySumsubWebhook, type ApplicantLookup } from './kyc/applyKyc.ts';
@@ -11,8 +12,11 @@ import { PgIdentityStore } from './kyc/pgIdentityStore.ts';
 import { fetchSumsubApplicant } from './kyc/sumsubClient.ts';
 import { verifySumsubDigest } from './kyc/sumsubSignature.ts';
 import { MemoryMintStore, type MintStore } from './mint/mintStore.ts';
-import { createMintQuote, recordMintDeposit, settleMintQuote } from './mint/pipeline.ts';
+import { createMintQuote, recordMintDeposit, settleMintQuote, type ExecuteMint } from './mint/pipeline.ts';
 import { PgMintStore } from './mint/pgMintStore.ts';
+import { parseForwardRequest, relayEscrowDeposit } from './relayer/relayDeposit.ts';
+import { createAgentSigner, createRelayerSigner } from './signer/fromEnv.ts';
+import { executeTokenMint } from './signer/executeMint.ts';
 
 dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
 dotenv.config();
@@ -36,6 +40,11 @@ export type AppDeps = {
   mintStore?: MintStore;
   lookupApplicant?: ApplicantLookup;
   now?: () => Date;
+  mint?: ExecuteMint;
+  relayDeposit?: (input: {
+    request: NonNullable<ReturnType<typeof parseForwardRequest>>;
+    signature: string;
+  }) => Promise<{ txHash: string; intentId: string; amount: bigint }>;
 };
 
 export function buildApp(deps: AppDeps = {}) {
@@ -45,6 +54,8 @@ export function buildApp(deps: AppDeps = {}) {
   const mintStore = deps.mintStore ?? new MemoryMintStore();
   const lookupApplicant = deps.lookupApplicant;
   const now = deps.now ?? (() => new Date());
+  const mint = deps.mint;
+  const relayDeposit = deps.relayDeposit;
 
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (request, body, done) => {
     const raw = typeof body === 'string' ? body : Buffer.from(body as ArrayBuffer).toString('utf8');
@@ -164,14 +175,95 @@ export function buildApp(deps: AppDeps = {}) {
       identities: store,
       now: now(),
       currentBlock,
+      mint,
     });
     if ('error' in result) {
-      return reply.code(404).send({ ok: false, reason: result.error });
+      const code = result.error === 'mint_failed' ? 502 : 404;
+      return reply
+        .code(code)
+        .send({ ok: false, reason: result.error, detail: 'reason' in result ? result.reason : undefined });
     }
     return { ok: true, quote: result.quote, decision: result.decision };
   });
 
+  app.post('/relayer/deposit', async (request, reply) => {
+    if (!relayDeposit) {
+      return reply.code(503).send({ ok: false, reason: 'relayer_unavailable' });
+    }
+
+    const body = asRecord(request.body);
+    const requestBody = asRecord(body.request);
+    const parsed = parseForwardRequest(requestBody);
+    const signature = asString(body.signature);
+    if (!parsed || !signature) {
+      return reply.code(400).send({ ok: false, reason: 'invalid_forward_request' });
+    }
+
+    try {
+      const result = await relayDeposit({ request: parsed, signature });
+      return {
+        ok: true,
+        txHash: result.txHash,
+        intentId: result.intentId,
+        amount: result.amount.toString(),
+      };
+    } catch (error) {
+      return reply.code(400).send({
+        ok: false,
+        reason: 'relay_rejected',
+        detail: error instanceof Error ? error.message : 'relay failed',
+      });
+    }
+  });
+
   return app;
+}
+
+function rpcProvider() {
+  const url = process.env.AMOY_RPC_URL;
+  return url ? new JsonRpcProvider(url) : undefined;
+}
+
+function createMintExecutor(): ExecuteMint | undefined {
+  const tokenAddress = process.env.TOKEN_ADDRESS;
+  const provider = rpcProvider();
+  if (!tokenAddress || !provider) {
+    return undefined;
+  }
+
+  try {
+    const signer = createAgentSigner({ env: process.env, provider });
+    if (!signer) {
+      return undefined;
+    }
+    return ({ to, shareAmount }) => executeTokenMint({ signer, tokenAddress, to, amount: shareAmount });
+  } catch {
+    return undefined;
+  }
+}
+
+function createRelayHandler(): AppDeps['relayDeposit'] {
+  const provider = rpcProvider();
+  const escrowAddress = process.env.ESCROW_ADDRESS;
+  const forwarderAddress = process.env.FORWARDER_ADDRESS;
+  if (!provider || !escrowAddress || !forwarderAddress) {
+    return undefined;
+  }
+
+  const relayer = createRelayerSigner({ env: process.env, provider });
+  if (!relayer) {
+    return undefined;
+  }
+
+  const chainId = process.env.CHAIN_ID ? BigInt(process.env.CHAIN_ID) : 80002n;
+  return (input) =>
+    relayEscrowDeposit({
+      input,
+      escrowAddress,
+      forwarderAddress,
+      chainId,
+      relayer,
+    });
 }
 
 async function main() {
@@ -187,6 +279,8 @@ async function main() {
     identityStore: store,
     mintStore,
     lookupApplicant: (applicantId) => fetchSumsubApplicant(applicantId),
+    mint: createMintExecutor(),
+    relayDeposit: createRelayHandler(),
   });
   const port = Number(process.env.API_PORT ?? 3001);
   await app.listen({ port, host: '0.0.0.0' });

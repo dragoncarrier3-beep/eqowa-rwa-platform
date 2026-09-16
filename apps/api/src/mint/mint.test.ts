@@ -265,3 +265,48 @@ test('POST /mint/quotes and /mint/settle run the same gates', async () => {
   assert.equal(minted.json().decision.shares, '2');
   await app.close();
 });
+
+test('calls the agent mint executor and keeps the quote open if it fails', async () => {
+  const store = new MemoryMintStore();
+  const identities = await approvedIdentities();
+  const quote = await quoted(store);
+  await deposited(store, quote, TEN_USDT, START, 100);
+
+  const calls: Array<{ to: string; shareAmount: bigint }> = [];
+  const minted = await settleMintQuote({
+    intentId: quote.intentId,
+    store,
+    identities,
+    now: START,
+    currentBlock: 112,
+    mint: async ({ to, shareAmount }) => {
+      calls.push({ to, shareAmount });
+      return '0xmint';
+    },
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.to, WALLET);
+  assert.equal(calls[0]?.shareAmount, 2n * ONE_SHARE);
+  if ('decision' in minted && minted.decision.action === 'mint' && 'txHash' in minted.decision) {
+    assert.equal(minted.decision.txHash, '0xmint');
+  }
+
+  const failedStore = new MemoryMintStore();
+  const failedQuote = await quoted(failedStore);
+  await deposited(failedStore, failedQuote, TEN_USDT, START, 100);
+  const failed = await settleMintQuote({
+    intentId: failedQuote.intentId,
+    store: failedStore,
+    identities,
+    now: START,
+    currentBlock: 112,
+    mint: async () => {
+      throw new Error('rpc down');
+    },
+  });
+
+  assert.equal('error' in failed && failed.error, 'mint_failed');
+  assert.equal((await failedStore.getQuote(failedQuote.intentId))?.status, 'deposited');
+  assert.equal(failedStore.exceptions[0]?.kind, 'mint_failed');
+});
