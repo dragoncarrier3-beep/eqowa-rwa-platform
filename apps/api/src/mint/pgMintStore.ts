@@ -1,5 +1,11 @@
 import type { PoolClient } from 'pg';
 
+import {
+  applyExceptionResolution,
+  type AuditEntry,
+  type ExceptionRecord,
+  type ExceptionStatus,
+} from '../../../../config/exceptions.ts';
 import { ONE_SHARE } from '../../../../config/eqowa.ts';
 import type { MintDeposit, MintQuoteStatus, MintRejectReason } from '../../../../config/mint.ts';
 
@@ -29,10 +35,38 @@ type DepositRow = {
 };
 
 type ExceptionRow = {
+  id: string;
   kind: string;
   intent_id: string;
+  status: ExceptionStatus;
   details: Record<string, unknown>;
+  created_at: Date;
+  resolved_at: Date | null;
+  resolved_by: string | null;
+  resolution: string | null;
 };
+
+type AuditRow = {
+  id: string;
+  actor: string;
+  action: string;
+  payload: Record<string, unknown>;
+  created_at: Date;
+};
+
+function toException(row: ExceptionRow): ExceptionRecord {
+  return {
+    id: row.id,
+    kind: row.kind,
+    intentId: row.intent_id,
+    status: row.status,
+    details: row.details ?? {},
+    createdAt: new Date(row.created_at),
+    resolvedAt: row.resolved_at ? new Date(row.resolved_at) : undefined,
+    resolvedBy: row.resolved_by ?? undefined,
+    resolution: row.resolution ?? undefined,
+  };
+}
 
 function toQuote(row: QuoteRow): StoredMintQuote {
   const shareAmount = BigInt(row.share_amount);
@@ -165,24 +199,109 @@ export class PgMintStore implements MintStore {
   }
 
   async addException(row: MintException) {
-    await this.client.query(
+    const result = await this.client.query<ExceptionRow>(
       `INSERT INTO exceptions (kind, intent_id, details)
-       VALUES ($1, $2, $3::jsonb)`,
+       VALUES ($1, $2, $3::jsonb)
+       RETURNING id, kind, intent_id, status, details, created_at, resolved_at, resolved_by, resolution`,
       [row.kind, row.intentId, JSON.stringify(row.details)],
     );
+    const record = toException(result.rows[0]!);
+    await this.appendAudit({
+      actor: 'api',
+      action: 'exception.opened',
+      payload: { id: record.id, kind: record.kind, intentId: record.intentId },
+    });
+    return record;
   }
 
-  async listExceptions(intentId: string) {
+  async getException(id: string) {
     const result = await this.client.query<ExceptionRow>(
-      `SELECT kind, intent_id, details
+      `SELECT id, kind, intent_id, status, details, created_at, resolved_at, resolved_by, resolution
        FROM exceptions
-       WHERE intent_id = $1`,
-      [intentId],
+       WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    return row ? toException(row) : undefined;
+  }
+
+  async listExceptions(filter: { intentId?: string; status?: ExceptionStatus } = {}) {
+    const result = await this.client.query<ExceptionRow>(
+      `SELECT id, kind, intent_id, status, details, created_at, resolved_at, resolved_by, resolution
+       FROM exceptions
+       WHERE ($1::text IS NULL OR intent_id = $1)
+         AND ($2::text IS NULL OR status = $2)
+       ORDER BY created_at ASC`,
+      [filter.intentId ?? null, filter.status ?? null],
+    );
+    return result.rows.map(toException);
+  }
+
+  async resolveException(id: string, params: { actor: string; resolution: string; now: Date }) {
+    const current = await this.getException(id);
+    if (!current) {
+      return 'missing';
+    }
+
+    const applied = applyExceptionResolution(current, params);
+    if ('error' in applied) {
+      return applied.error;
+    }
+
+    await this.client.query(
+      `UPDATE exceptions
+       SET status = $2, resolved_at = $3, resolved_by = $4, resolution = $5
+       WHERE id = $1 AND status = 'open'`,
+      [
+        id,
+        applied.record.status,
+        applied.record.resolvedAt?.toISOString(),
+        applied.record.resolvedBy,
+        applied.record.resolution,
+      ],
+    );
+
+    await this.appendAudit({
+      actor: params.actor.trim(),
+      action: 'exception.resolved',
+      payload: { id, resolution: applied.record.resolution, kind: applied.record.kind },
+      now: params.now,
+    });
+    return applied.record;
+  }
+
+  async appendAudit(entry: { actor: string; action: string; payload: Record<string, unknown>; now?: Date }) {
+    const result = await this.client.query<AuditRow>(
+      `INSERT INTO audit_log (actor, action, payload, created_at)
+       VALUES ($1, $2, $3::jsonb, COALESCE($4::timestamptz, now()))
+       RETURNING id::text, actor, action, payload, created_at`,
+      [entry.actor, entry.action, JSON.stringify(entry.payload), entry.now?.toISOString() ?? null],
+    );
+    const row = result.rows[0]!;
+    return {
+      id: row.id,
+      actor: row.actor,
+      action: row.action,
+      payload: row.payload ?? {},
+      createdAt: new Date(row.created_at),
+    };
+  }
+
+  async listAudit(limit: number = 50) {
+    const size = limit > 0 ? limit : 50;
+    const result = await this.client.query<AuditRow>(
+      `SELECT id::text, actor, action, payload, created_at
+       FROM audit_log
+       ORDER BY id DESC
+       LIMIT $1`,
+      [size],
     );
     return result.rows.map((row) => ({
-      kind: row.kind,
-      intentId: row.intent_id,
-      details: row.details,
+      id: row.id,
+      actor: row.actor,
+      action: row.action,
+      payload: row.payload ?? {},
+      createdAt: new Date(row.created_at),
     }));
   }
 }

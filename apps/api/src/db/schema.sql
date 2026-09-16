@@ -89,8 +89,15 @@ CREATE TABLE IF NOT EXISTS exceptions (
   status TEXT NOT NULL DEFAULT 'open',
   details JSONB NOT NULL DEFAULT '{}',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  resolved_at TIMESTAMPTZ
+  resolved_at TIMESTAMPTZ,
+  resolved_by TEXT,
+  resolution TEXT
 );
+
+ALTER TABLE exceptions ADD COLUMN IF NOT EXISTS resolved_by TEXT;
+ALTER TABLE exceptions ADD COLUMN IF NOT EXISTS resolution TEXT;
+
+-- audit_log is append-only. Application code INSERTs rows and never UPDATE/DELETE.
 
 CREATE TABLE IF NOT EXISTS audit_log (
   id BIGSERIAL PRIMARY KEY,

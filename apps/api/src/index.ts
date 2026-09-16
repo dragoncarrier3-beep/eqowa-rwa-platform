@@ -6,6 +6,7 @@ import Fastify, { type FastifyRequest } from 'fastify';
 import { JsonRpcProvider } from 'ethers';
 import pg from 'pg';
 
+import { adminUnauthorized, serializeAudit, serializeException } from './admin/serialize.ts';
 import { applySumsubWebhook, type ApplicantLookup } from './kyc/applyKyc.ts';
 import { MemoryIdentityStore, type IdentityStore } from './kyc/identityStore.ts';
 import { PgIdentityStore } from './kyc/pgIdentityStore.ts';
@@ -41,6 +42,7 @@ export type AppDeps = {
   lookupApplicant?: ApplicantLookup;
   now?: () => Date;
   mint?: ExecuteMint;
+  adminKey?: string;
   relayDeposit?: (input: {
     request: NonNullable<ReturnType<typeof parseForwardRequest>>;
     signature: string;
@@ -56,6 +58,7 @@ export function buildApp(deps: AppDeps = {}) {
   const now = deps.now ?? (() => new Date());
   const mint = deps.mint;
   const relayDeposit = deps.relayDeposit;
+  const adminKey = deps.adminKey ?? process.env.ADMIN_API_KEY ?? '';
 
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (request, body, done) => {
     const raw = typeof body === 'string' ? body : Buffer.from(body as ArrayBuffer).toString('utf8');
@@ -214,6 +217,55 @@ export function buildApp(deps: AppDeps = {}) {
         detail: error instanceof Error ? error.message : 'relay failed',
       });
     }
+  });
+
+  app.get('/admin/exceptions', async (request, reply) => {
+    const denied = adminUnauthorized(request, reply, adminKey);
+    if (denied) {
+      return denied;
+    }
+    const query = request.query as Record<string, unknown>;
+    const status = query.status === 'open' || query.status === 'resolved' ? query.status : undefined;
+    const intentId = typeof query.intentId === 'string' ? query.intentId : undefined;
+    const rows = await mintStore.listExceptions({ status, intentId });
+    return { ok: true, exceptions: rows.map(serializeException) };
+  });
+
+  app.post('/admin/exceptions/:id/resolve', async (request, reply) => {
+    const denied = adminUnauthorized(request, reply, adminKey);
+    if (denied) {
+      return denied;
+    }
+    const params = request.params as { id: string };
+    const body = asRecord(request.body);
+    const actorHeader = request.headers['x-admin-actor'];
+    const actor = typeof actorHeader === 'string' && actorHeader.trim() ? actorHeader.trim() : 'admin';
+    const result = await mintStore.resolveException(params.id, {
+      actor,
+      resolution: asString(body.resolution),
+      now: now(),
+    });
+    if (result === 'missing') {
+      return reply.code(404).send({ ok: false, reason: 'unknown_exception' });
+    }
+    if (result === 'already_resolved') {
+      return reply.code(409).send({ ok: false, reason: result });
+    }
+    if (typeof result === 'string') {
+      return reply.code(400).send({ ok: false, reason: result });
+    }
+    return { ok: true, exception: serializeException(result) };
+  });
+
+  app.get('/admin/audit', async (request, reply) => {
+    const denied = adminUnauthorized(request, reply, adminKey);
+    if (denied) {
+      return denied;
+    }
+    const query = request.query as Record<string, unknown>;
+    const limit = typeof query.limit === 'string' ? Number(query.limit) : 50;
+    const rows = await mintStore.listAudit(Number.isFinite(limit) ? limit : 50);
+    return { ok: true, audit: rows.map(serializeAudit) };
   });
 
   return app;
