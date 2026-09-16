@@ -8,7 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "migrate": "tsx src/db/migrate.ts",
-    "test": "tsx --test src/schema.test.ts src/indexer/indexer.test.ts src/kyc/kyc.test.ts",
+    "test": "tsx --test src/schema.test.ts src/indexer/indexer.test.ts src/kyc/kyc.test.ts src/mint/mint.test.ts",
     "index": "tsx src/indexer/backfill.ts"
   },
   "dependencies": {

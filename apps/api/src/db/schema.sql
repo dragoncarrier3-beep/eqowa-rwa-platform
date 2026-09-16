@@ -65,14 +65,21 @@ CREATE TABLE IF NOT EXISTS mint_intents (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   intent_id TEXT NOT NULL UNIQUE,
   user_id UUID REFERENCES users (id),
+  wallet_address TEXT,
   usdt_amount NUMERIC(78, 0) NOT NULL,
   share_amount NUMERIC(78, 0) NOT NULL,
   fee_amount NUMERIC(78, 0) NOT NULL,
   funds_amount NUMERIC(78, 0) NOT NULL,
+  remainder_amount NUMERIC(78, 0) NOT NULL DEFAULT 0,
   quote_expires_at TIMESTAMPTZ NOT NULL,
   status TEXT NOT NULL DEFAULT 'quoted',
+  reject_reason TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE mint_intents ADD COLUMN IF NOT EXISTS wallet_address TEXT;
+ALTER TABLE mint_intents ADD COLUMN IF NOT EXISTS remainder_amount NUMERIC(78, 0) NOT NULL DEFAULT 0;
+ALTER TABLE mint_intents ADD COLUMN IF NOT EXISTS reject_reason TEXT;
 
 CREATE TABLE IF NOT EXISTS exceptions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
