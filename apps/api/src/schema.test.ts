@@ -24,6 +24,10 @@ test('schema defines the Milestone 2 tables', () => {
   assert.match(sql, /sumsub_applicant_id/);
   assert.match(sql, /remainder_amount/);
   assert.match(sql, /wallet_address/);
+  assert.match(sql, /resolved_by/);
+  assert.match(sql, /resolution TEXT/);
+  assert.doesNotMatch(sql, /UPDATE\s+audit_log/i);
+  assert.doesNotMatch(sql, /DELETE\s+FROM\s+audit_log/i);
 });
 
 test('GET /health does not need a database', async () => {
