@@ -1,6 +1,6 @@
 import type { PoolClient } from 'pg';
 
-import type { IdentityRecord, IdentityStore } from './identityStore.ts';
+import type { IdentityFilter, IdentityRecord, IdentityStore, KycEvent } from './identityStore.ts';
 
 type IdentityRow = {
   wallet_address: string;
@@ -10,14 +10,41 @@ type IdentityRow = {
   sumsub_applicant_id: string;
 };
 
-function toRecord(row: IdentityRow, claims: number[]): IdentityRecord {
+type EventRow = {
+  applicant_id: string;
+  event_type: string;
+  review_answer: string | null;
+  country_code: number | null;
+  status: KycEvent['status'];
+  payload: { reason?: string | null; webhook?: Record<string, unknown> } | null;
+  created_at: Date;
+};
+
+const IDENTITY_SELECT = `SELECT u.wallet_address, i.onchainid_address, i.country_code, i.kyc_status, i.sumsub_applicant_id
+       FROM identities i
+       JOIN users u ON u.id = i.user_id`;
+
+function toRecord(row: IdentityRow): IdentityRecord {
   return {
     walletAddress: row.wallet_address,
     onchainIdAddress: row.onchainid_address,
     countryCode: row.country_code,
     kycStatus: row.kyc_status,
     applicantId: row.sumsub_applicant_id,
-    claims,
+    claims: row.kyc_status === 'approved' ? [1, 2] : [],
+  };
+}
+
+function toEvent(row: EventRow): KycEvent {
+  return {
+    applicantId: row.applicant_id,
+    eventType: row.event_type,
+    reviewAnswer: row.review_answer,
+    countryCode: row.country_code,
+    status: row.status,
+    reason: row.payload?.reason ?? null,
+    payload: row.payload?.webhook ?? {},
+    receivedAt: row.created_at,
   };
 }
 
@@ -53,18 +80,6 @@ export class PgIdentityStore implements IdentityStore {
     );
 
     await this.client.query(
-      `INSERT INTO kyc_events (applicant_id, event_type, review_answer, country_code, status, payload)
-       VALUES ($1, 'applicantReviewed', $2, $3, $4, $5::jsonb)`,
-      [
-        record.applicantId,
-        record.kycStatus === 'approved' ? 'GREEN' : 'RED',
-        record.countryCode,
-        record.kycStatus,
-        JSON.stringify({ claims: record.claims, wallet: record.walletAddress }),
-      ],
-    );
-
-    await this.client.query(
       `INSERT INTO audit_log (actor, action, payload)
        VALUES ('sumsub', 'kyc.reviewed', $1::jsonb)`,
       [JSON.stringify({ applicantId: record.applicantId, status: record.kycStatus })],
@@ -74,32 +89,55 @@ export class PgIdentityStore implements IdentityStore {
   }
 
   async getByApplicant(applicantId: string) {
-    const result = await this.client.query<IdentityRow>(
-      `SELECT u.wallet_address, i.onchainid_address, i.country_code, i.kyc_status, i.sumsub_applicant_id
-       FROM identities i
-       JOIN users u ON u.id = i.user_id
-       WHERE i.sumsub_applicant_id = $1`,
-      [applicantId],
-    );
+    const result = await this.client.query<IdentityRow>(`${IDENTITY_SELECT} WHERE i.sumsub_applicant_id = $1`, [
+      applicantId,
+    ]);
     const row = result.rows[0];
-    if (!row) {
-      return undefined;
-    }
-    return toRecord(row, row.kyc_status === 'approved' ? [1, 2] : []);
+    return row ? toRecord(row) : undefined;
   }
 
   async getByWallet(wallet: string) {
-    const result = await this.client.query<IdentityRow>(
-      `SELECT u.wallet_address, i.onchainid_address, i.country_code, i.kyc_status, i.sumsub_applicant_id
-       FROM identities i
-       JOIN users u ON u.id = i.user_id
-       WHERE u.wallet_address = $1`,
-      [wallet.toLowerCase()],
-    );
+    const result = await this.client.query<IdentityRow>(`${IDENTITY_SELECT} WHERE u.wallet_address = $1`, [
+      wallet.toLowerCase(),
+    ]);
     const row = result.rows[0];
-    if (!row) {
-      return undefined;
-    }
-    return toRecord(row, row.kyc_status === 'approved' ? [1, 2] : []);
+    return row ? toRecord(row) : undefined;
+  }
+
+  async list(filter: IdentityFilter = {}) {
+    const result = filter.status
+      ? await this.client.query<IdentityRow>(`${IDENTITY_SELECT} WHERE i.kyc_status = $1 ORDER BY i.created_at`, [
+          filter.status,
+        ])
+      : await this.client.query<IdentityRow>(`${IDENTITY_SELECT} ORDER BY i.created_at`);
+    return result.rows.map(toRecord);
+  }
+
+  /** kyc_events is a delivery log. One row per webhook POST, including ignored types. */
+  async recordEvent(event: KycEvent) {
+    await this.client.query(
+      `INSERT INTO kyc_events (applicant_id, event_type, review_answer, country_code, status, payload, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,
+      [
+        event.applicantId,
+        event.eventType,
+        event.reviewAnswer,
+        event.countryCode,
+        event.status,
+        JSON.stringify({ reason: event.reason, webhook: event.payload }),
+        event.receivedAt,
+      ],
+    );
+  }
+
+  async listEvents(applicantId: string) {
+    const result = await this.client.query<EventRow>(
+      `SELECT applicant_id, event_type, review_answer, country_code, status, payload, created_at
+       FROM kyc_events
+       WHERE applicant_id = $1
+       ORDER BY created_at`,
+      [applicantId],
+    );
+    return result.rows.map(toEvent);
   }
 }
