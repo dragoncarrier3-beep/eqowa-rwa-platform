@@ -115,7 +115,7 @@ test('POST /webhooks/sumsub rejects a bad digest when a secret is set', async ()
 });
 
 test('POST /webhooks/sumsub ignores applicantPending', async () => {
-  const app = buildApp({ identityStore: new MemoryIdentityStore() });
+  const app = buildApp({ webhookSecret: '', identityStore: new MemoryIdentityStore() });
   const response = await app.inject({
     method: 'POST',
     url: '/webhooks/sumsub',
@@ -125,5 +125,115 @@ test('POST /webhooks/sumsub ignores applicantPending', async () => {
 
   assert.equal(response.statusCode, 200);
   assert.equal(response.json().status, 'ignored');
+  await app.close();
+});
+
+test('every verified webhook delivery is stored, including ignored types', async () => {
+  const store = new MemoryIdentityStore();
+  const app = buildApp({ webhookSecret: '', identityStore: store });
+
+  await app.inject({
+    method: 'POST',
+    url: '/webhooks/sumsub',
+    headers: { 'content-type': 'application/json' },
+    payload: JSON.stringify({ type: 'applicantPending', applicantId: 'app-1' }),
+  });
+  await app.inject({
+    method: 'POST',
+    url: '/webhooks/sumsub',
+    headers: { 'content-type': 'application/json' },
+    payload: JSON.stringify(reviewedPayload()),
+  });
+
+  const events = await store.listEvents('app-1');
+  assert.equal(events.length, 2);
+  assert.equal(events[0].eventType, 'applicantPending');
+  assert.equal(events[0].status, 'ignored');
+  assert.equal(events[1].eventType, 'applicantReviewed');
+  assert.equal(events[1].status, 'approved');
+  assert.equal(events[1].reviewAnswer, 'GREEN');
+  assert.equal(events[1].countryCode, COUNTRY.NIGERIA);
+  await app.close();
+});
+
+test('a rejected signature is not stored as a delivery', async () => {
+  const store = new MemoryIdentityStore();
+  const app = buildApp({ webhookSecret: SECRET, identityStore: store });
+  await app.inject({
+    method: 'POST',
+    url: '/webhooks/sumsub',
+    headers: { 'content-type': 'application/json', 'x-payload-digest': '00'.repeat(32) },
+    payload: JSON.stringify(reviewedPayload()),
+  });
+  assert.equal(store.events.length, 0);
+  await app.close();
+});
+
+test('GET /admin/kyc/:applicantId shows the identity and its deliveries', async () => {
+  const store = new MemoryIdentityStore();
+  const app = buildApp({ webhookSecret: '', identityStore: store, adminKey: 'k' });
+  await app.inject({
+    method: 'POST',
+    url: '/webhooks/sumsub',
+    headers: { 'content-type': 'application/json' },
+    payload: JSON.stringify(reviewedPayload({ info: { country: 'USA' } })),
+  });
+
+  const response = await app.inject({ method: 'GET', url: '/admin/kyc/app-1', headers: { 'x-admin-key': 'k' } });
+  assert.equal(response.statusCode, 200);
+  const body = response.json();
+  assert.equal(body.identity.kycStatus, 'blocked_country');
+  assert.equal(body.identity.countryCode, COUNTRY.UNITED_STATES);
+  assert.deepEqual(body.identity.claims, []);
+  assert.equal(body.events.length, 1);
+  assert.equal(body.events[0].status, 'rejected');
+  assert.equal(body.events[0].reason, 'blocked_country');
+
+  const missing = await app.inject({ method: 'GET', url: '/admin/kyc/nobody', headers: { 'x-admin-key': 'k' } });
+  assert.equal(missing.statusCode, 404);
+
+  const denied = await app.inject({ method: 'GET', url: '/admin/kyc/app-1', headers: { 'x-admin-key': 'wrong' } });
+  assert.equal(denied.statusCode, 401);
+  await app.close();
+});
+
+test('GET /admin/kyc lists identities and filters by status', async () => {
+  const store = new MemoryIdentityStore();
+  const app = buildApp({ webhookSecret: '', identityStore: store, adminKey: 'k' });
+  await app.inject({
+    method: 'POST',
+    url: '/webhooks/sumsub',
+    headers: { 'content-type': 'application/json' },
+    payload: JSON.stringify(reviewedPayload()),
+  });
+  await app.inject({
+    method: 'POST',
+    url: '/webhooks/sumsub',
+    headers: { 'content-type': 'application/json' },
+    payload: JSON.stringify(
+      reviewedPayload({
+        applicantId: 'app-2',
+        externalUserId: '0x2222222222222222222222222222222222222222',
+        reviewResult: { reviewAnswer: 'RED' },
+      }),
+    ),
+  });
+
+  const all = await app.inject({ method: 'GET', url: '/admin/kyc', headers: { 'x-admin-key': 'k' } });
+  assert.equal(all.json().identities.length, 2);
+
+  const approved = await app.inject({
+    method: 'GET',
+    url: '/admin/kyc?status=approved',
+    headers: { 'x-admin-key': 'k' },
+  });
+  assert.equal(approved.json().identities.length, 1);
+  assert.equal(approved.json().identities[0].applicantId, 'app-1');
+  assert.deepEqual(approved.json().identities[0].claims, [1, 2]);
+
+  const unconfigured = buildApp({ webhookSecret: '', identityStore: store, adminKey: '' });
+  const off = await unconfigured.inject({ method: 'GET', url: '/admin/kyc', headers: { 'x-admin-key': 'k' } });
+  assert.equal(off.statusCode, 503);
+  await unconfigured.close();
   await app.close();
 });

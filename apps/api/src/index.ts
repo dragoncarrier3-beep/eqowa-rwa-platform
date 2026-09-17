@@ -6,9 +6,15 @@ import Fastify, { type FastifyRequest } from 'fastify';
 import { JsonRpcProvider } from 'ethers';
 import pg from 'pg';
 
-import { adminUnauthorized, serializeAudit, serializeException } from './admin/serialize.ts';
+import {
+  adminUnauthorized,
+  serializeAudit,
+  serializeException,
+  serializeIdentity,
+  serializeKycEvent,
+} from './admin/serialize.ts';
 import { applySumsubWebhook, type ApplicantLookup } from './kyc/applyKyc.ts';
-import { MemoryIdentityStore, type IdentityStore } from './kyc/identityStore.ts';
+import { MemoryIdentityStore, type IdentityRecord, type IdentityStore } from './kyc/identityStore.ts';
 import { PgIdentityStore } from './kyc/pgIdentityStore.ts';
 import { fetchSumsubApplicant } from './kyc/sumsubClient.ts';
 import { verifySumsubDigest } from './kyc/sumsubSignature.ts';
@@ -19,10 +25,13 @@ import { parseForwardRequest, relayEscrowDeposit } from './relayer/relayDeposit.
 import { createAgentSigner, createRelayerSigner } from './signer/fromEnv.ts';
 import { executeTokenMint } from './signer/executeMint.ts';
 
-dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
-dotenv.config();
+dotenv.config({ path: path.resolve(import.meta.dirname, '../../../.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '../.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 type RequestWithRawBody = FastifyRequest & { rawBody?: string };
+
+const KYC_STATUSES: IdentityRecord['kycStatus'][] = ['pending', 'approved', 'rejected', 'blocked_country'];
 
 function asRecord(value: unknown): Record<string, unknown> {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -94,7 +103,7 @@ export function buildApp(deps: AppDeps = {}) {
     }
   });
 
-  app.post('/webhooks/sumsub', { logLevel: 'warn' }, async (request, reply) => {
+  app.post('/webhooks/sumsub', async (request, reply) => {
     const rawBody = (request as RequestWithRawBody).rawBody ?? '';
     const digestHeader = request.headers['x-payload-digest'];
     const algHeader = request.headers['x-payload-digest-alg'];
@@ -102,14 +111,43 @@ export function buildApp(deps: AppDeps = {}) {
     const alg = typeof algHeader === 'string' ? algHeader : undefined;
 
     if (!verifySumsubDigest({ rawBody, secret: webhookSecret, digest, alg })) {
+      request.log.warn({ reason: 'invalid signature' }, 'sumsub webhook rejected');
       return reply.code(401).send({ ok: false, reason: 'invalid signature' });
     }
 
+    const body = asRecord(request.body);
     const result = await applySumsubWebhook({
       payload: request.body,
       store,
       lookupApplicant,
     });
+
+    const eventType = asString(body.type) || 'unknown';
+    const applicantId = asString(body.applicantId) || 'unknown';
+    const reviewAnswer = asString(asRecord(body.reviewResult).reviewAnswer) || null;
+
+    // Every verified delivery is kept, including ignored types, so ops can
+    // answer "did Sumsub reach us for this applicant" without Sumsub's own log.
+    await store.recordEvent({
+      applicantId,
+      eventType,
+      reviewAnswer,
+      countryCode: result.identity?.countryCode ?? null,
+      status: result.status,
+      reason: result.reason ?? null,
+      payload: body,
+      receivedAt: now(),
+    });
+
+    request.log.info(
+      {
+        type: eventType,
+        applicantId,
+        status: result.status,
+        reason: result.reason,
+      },
+      'sumsub webhook',
+    );
 
     return {
       ok: true,
@@ -255,6 +293,37 @@ export function buildApp(deps: AppDeps = {}) {
       return reply.code(400).send({ ok: false, reason: result });
     }
     return { ok: true, exception: serializeException(result) };
+  });
+
+  app.get('/admin/kyc', async (request, reply) => {
+    const denied = adminUnauthorized(request, reply, adminKey);
+    if (denied) {
+      return denied;
+    }
+    const query = request.query as Record<string, unknown>;
+    const status = KYC_STATUSES.find((value) => value === query.status);
+    const rows = await store.list({ status });
+    return { ok: true, identities: rows.map(serializeIdentity) };
+  });
+
+  app.get('/admin/kyc/:applicantId', async (request, reply) => {
+    const denied = adminUnauthorized(request, reply, adminKey);
+    if (denied) {
+      return denied;
+    }
+    const params = request.params as { applicantId: string };
+    const [identity, events] = await Promise.all([
+      store.getByApplicant(params.applicantId),
+      store.listEvents(params.applicantId),
+    ]);
+    if (!identity && events.length === 0) {
+      return reply.code(404).send({ ok: false, reason: 'unknown_applicant' });
+    }
+    return {
+      ok: true,
+      identity: identity ? serializeIdentity(identity) : null,
+      events: events.map(serializeKycEvent),
+    };
   });
 
   app.get('/admin/audit', async (request, reply) => {
