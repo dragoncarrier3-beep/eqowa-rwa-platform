@@ -19,6 +19,7 @@ export type PublicContracts = {
   claimIssuer: string;
   modules: EqowaDeployment['modules'];
   implementations: EqowaDeployment['implementations'];
+  settlement: { usdt: string; forwarder: string; escrow: string } | null;
 };
 
 export type PublicAddresses = {
@@ -117,6 +118,13 @@ export function publicAddressesFromDeployment(deployment: EqowaDeployment): Publ
       claimIssuer: deployment.claimIssuer,
       modules: deployment.modules,
       implementations: deployment.implementations,
+      settlement: deployment.settlement
+        ? {
+            usdt: deployment.settlement.usdt,
+            forwarder: deployment.settlement.forwarder,
+            escrow: deployment.settlement.escrow,
+          }
+        : null,
     },
   };
 }

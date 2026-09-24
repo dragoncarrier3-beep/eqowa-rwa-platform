@@ -4,20 +4,15 @@ import { loadFixture } from '@nomicfoundation/hardhat-network-helpers';
 
 import { encodeEscrowDeposit, FORWARD_REQUEST_TYPES, forwarderDomain } from '../../config/forwarder';
 import { ONE_USDT } from '../../config/eqowa';
+import { deploySettlementContracts } from '../../scripts/lib/deploySettlementContracts';
 
 const INTENT = ethers.id('intent-1');
 
 async function deployEscrowFixture() {
   const [owner, investor, relayer, other] = await ethers.getSigners();
 
-  const forwarder = await ethers.deployContract('EqowaMinimalForwarder', [], owner);
-  const usdt = await ethers.deployContract('MockUSDT', [], owner);
+  const { forwarder, usdt, escrow } = await deploySettlementContracts({ deployer: owner, owner: owner.address });
   const otherToken = await ethers.deployContract('MockUSDT', [], owner);
-  const escrow = await ethers.deployContract(
-    'Escrow',
-    [await usdt.getAddress(), owner.address, await forwarder.getAddress()],
-    owner,
-  );
 
   await usdt.mint(investor.address, 20n * ONE_USDT);
   await otherToken.mint(investor.address, 20n * ONE_USDT);

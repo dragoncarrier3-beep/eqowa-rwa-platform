@@ -83,6 +83,34 @@ module implementations and their proxies, the factory and the TREX
 implementation authority. ONCHAINID factory bytecode comes from the npm
 package and is not verified from this repo.
 
+## Settlement contracts (Milestone 3)
+
+Run after the suite is deployed and `deployments/amoy.json` exists. The Safe
+must already have code.
+
+```
+npm run deploy-settlement:amoy
+npm run verify:amoy
+npm run publish-addresses
+```
+
+This deploys MockUSDT (6 decimals, Amoy has no official USDT), the ERC-2771
+forwarder and the escrow. The escrow constructor takes the Safe as owner, so
+refunds and sweeps are Safe-only from the first block and no handover step is
+needed. Cost is about 2.25M gas, roughly 0.08 POL at the pinned price.
+
+The script adds a `settlement` block to `deployments/amoy.json` and refuses to
+run again if one is already there. Replacing it would orphan any USDT held by
+the first escrow, so only set `FORCE_SETTLEMENT_DEPLOY=true` if that escrow is
+empty.
+
+It prints five lines to copy into `.env`: `TOKEN_ADDRESS`, `USDT_ADDRESS`,
+`FORWARDER_ADDRESS`, `ESCROW_ADDRESS` and `INDEX_FROM_BLOCK`. The last one is
+the escrow deploy block, the first block the settlement worker scans.
+
+`verify:amoy` picks up the three settlement contracts automatically once the
+`settlement` block is present.
+
 ## Do not
 
 - Broadcast without a Safe that already has code on Amoy.
@@ -90,3 +118,5 @@ package and is not verified from this repo.
   mainnet.
 - Add the deployer or the Fintech Ops agent as a Safe owner.
 - Commit `.env` or `deployments/amoy.json`.
+- Re-run `deploy-settlement:amoy` with `FORCE_SETTLEMENT_DEPLOY=true` while the
+  existing escrow still holds USDT.

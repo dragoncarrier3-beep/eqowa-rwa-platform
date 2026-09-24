@@ -41,7 +41,36 @@ export type EqowaDeployment = {
   };
   /** Set when deploy.ts created the ClaimIssuer. Used for Polygonscan verify. */
   claimIssuerManagementKey?: string;
+  /** Set by deploySettlement.ts once the escrow stack is live. */
+  settlement?: SettlementDeployment;
 };
+
+export type SettlementDeployment = {
+  owner: string;
+  usdt: string;
+  forwarder: string;
+  escrow: string;
+  /** First block the settlement worker needs to scan (INDEX_FROM_BLOCK). */
+  escrowDeployBlock: number;
+};
+
+/**
+ * Attach a settlement stack to an existing suite record. Refuses to replace one
+ * unless forced, so a second run cannot silently orphan the escrow that holds
+ * investor USDT.
+ */
+export function withSettlement(
+  deployment: EqowaDeployment,
+  settlement: SettlementDeployment,
+  options: { force?: boolean } = {},
+): EqowaDeployment {
+  if (deployment.settlement && !options.force) {
+    throw new Error(
+      `Settlement already deployed at escrow ${deployment.settlement.escrow}. Set FORCE_SETTLEMENT_DEPLOY=true to replace it.`,
+    );
+  }
+  return { ...deployment, settlement };
+}
 
 export function deploymentPath(network: string): string {
   return path.join('deployments', `${network}.json`);

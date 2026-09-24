@@ -172,6 +172,30 @@ export function verificationTargets(deployment: EqowaDeployment): VerificationTa
     },
   ];
 
+  if (deployment.settlement) {
+    const settlement = deployment.settlement;
+    targets.push(
+      {
+        name: 'MockUSDT',
+        address: settlement.usdt,
+        contract: 'contracts/mocks/MockUSDT.sol:MockUSDT',
+        args: [],
+      },
+      {
+        name: 'EqowaMinimalForwarder',
+        address: settlement.forwarder,
+        contract: 'contracts/mocks/EqowaMinimalForwarder.sol:EqowaMinimalForwarder',
+        args: [],
+      },
+      {
+        name: 'Escrow',
+        address: settlement.escrow,
+        contract: 'contracts/escrow/Escrow.sol:Escrow',
+        args: [settlement.usdt, settlement.owner, settlement.forwarder],
+      },
+    );
+  }
+
   if (deployment.claimIssuerManagementKey) {
     targets.push({
       name: 'ClaimIssuer',

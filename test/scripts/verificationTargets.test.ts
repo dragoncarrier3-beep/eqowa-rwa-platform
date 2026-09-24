@@ -78,6 +78,25 @@ describe('Polygonscan verification targets', () => {
     ]);
   });
 
+  it('adds the settlement contracts once they are deployed', async () => {
+    const deployment = sampleDeployment();
+    const address = (n: number) => ethers.getAddress(`0x${n.toString(16).padStart(40, '0')}`);
+    deployment.settlement = {
+      owner: deployment.safe,
+      usdt: address(50),
+      forwarder: address(51),
+      escrow: address(52),
+      escrowDeployBlock: 100,
+    };
+
+    const targets = verificationTargets(deployment);
+    const escrow = targets.find((target) => target.name === 'Escrow');
+
+    expect(targets).to.have.length(28);
+    expect(targets.map((target) => target.name)).to.include.members(['MockUSDT', 'EqowaMinimalForwarder']);
+    expect(escrow?.args).to.deep.equal([address(50), deployment.safe, address(51)]);
+  });
+
   it('omits ClaimIssuer when we did not deploy it', async () => {
     const deployment = sampleDeployment();
     delete deployment.claimIssuerManagementKey;

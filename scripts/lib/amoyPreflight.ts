@@ -10,6 +10,12 @@ import { AMOY_GAS_PRICE_WEI } from '../../config/amoyFees';
  */
 export const DEPLOY_GAS_ESTIMATE = 41_000_000n;
 
+/**
+ * MockUSDT, the ERC-2771 forwarder and the escrow. Measured at 2,254,598 gas
+ * against the local network on 24 September 2026.
+ */
+export const SETTLEMENT_DEPLOY_GAS_ESTIMATE = 2_400_000n;
+
 /** One `createProxyWithNonce` call against the Safe 1.4.1 factory. */
 export const SAFE_CREATE_GAS_ESTIMATE = 400_000n;
 
