@@ -85,5 +85,23 @@ describe('public addresses.json', () => {
     expect(published.contracts?.token).to.equal(deployment.token);
     expect(published.contracts?.modules.timeLockup).to.equal(deployment.modules.timeLockup);
     expect(published.contracts?.implementations.token).to.equal(deployment.implementations.token);
+    expect(published.contracts?.settlement).to.equal(null);
+  });
+
+  it('publishes the settlement contracts when present', async () => {
+    const deployment = sampleDeployment();
+    deployment.settlement = {
+      owner: deployment.safe,
+      usdt: '0x0000000000000000000000000000000000000050',
+      forwarder: '0x0000000000000000000000000000000000000051',
+      escrow: '0x0000000000000000000000000000000000000052',
+      escrowDeployBlock: 100,
+    };
+
+    expect(publicAddressesFromDeployment(deployment).contracts?.settlement).to.deep.equal({
+      usdt: deployment.settlement.usdt,
+      forwarder: deployment.settlement.forwarder,
+      escrow: deployment.settlement.escrow,
+    });
   });
 });

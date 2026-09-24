@@ -5,6 +5,7 @@ import { AMOY_GAS_PRICE_GWEI } from '../../config/amoyFees';
 import {
   DEPLOY_GAS_ESTIMATE,
   SAFE_CREATE_GAS_ESTIMATE,
+  SETTLEMENT_DEPLOY_GAS_ESTIMATE,
   assertAmoyDeployReady,
   assertDeployerFunded,
   assertSafeDeployed,
@@ -49,5 +50,11 @@ describe('Amoy deploy preflight', () => {
   it('keeps the measured gas estimate for the full suite', () => {
     // Measured at 40,757,565 gas locally. Raise this if the suite grows.
     expect(DEPLOY_GAS_ESTIMATE).to.equal(41_000_000n);
+  });
+
+  it('prices the settlement deploy under 0.1 POL', () => {
+    // Measured at 2,254,598 gas locally.
+    expect(SETTLEMENT_DEPLOY_GAS_ESTIMATE).to.equal(2_400_000n);
+    expect(requiredWei(SETTLEMENT_DEPLOY_GAS_ESTIMATE)).to.be.lessThan(ethers.parseEther('0.1'));
   });
 });

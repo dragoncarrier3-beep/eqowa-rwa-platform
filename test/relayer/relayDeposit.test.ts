@@ -6,6 +6,7 @@ import { executeTokenMint } from '../../config/agentMint';
 import { ONE_USDT, shareBaseUnits } from '../../config/eqowa';
 import { encodeEscrowDeposit, FORWARD_REQUEST_TYPES, forwarderDomain } from '../../config/forwarder';
 import { relayEscrowDeposit } from '../../config/relayer';
+import { deploySettlementContracts } from '../../scripts/lib/deploySettlementContracts';
 import { deployEqowaSuiteFixture } from '../fixtures/deployEqowaSuite';
 
 const INTENT = ethers.id('m2-06-relay');
@@ -13,13 +14,7 @@ const INTENT = ethers.id('m2-06-relay');
 async function deployRelayFixture() {
   const suite = await deployEqowaSuiteFixture();
   const [owner] = await ethers.getSigners();
-  const forwarder = await ethers.deployContract('EqowaMinimalForwarder', [], owner);
-  const usdt = await ethers.deployContract('MockUSDT', [], owner);
-  const escrow = await ethers.deployContract(
-    'Escrow',
-    [await usdt.getAddress(), owner.address, await forwarder.getAddress()],
-    owner,
-  );
+  const { forwarder, usdt, escrow } = await deploySettlementContracts({ deployer: owner, owner: owner.address });
   const amount = 5n * ONE_USDT;
   await usdt.mint(suite.accounts.alice.address, amount);
   await usdt.connect(suite.accounts.alice).approve(await escrow.getAddress(), amount);

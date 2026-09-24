@@ -4,6 +4,7 @@ import { loadFixture, mine } from '@nomicfoundation/hardhat-network-helpers';
 
 import { ONE_SHARE, ONE_USDT, shareBaseUnits, splitUsdtDeposit } from '../../config/eqowa';
 import { CONFIRMATION_BLOCKS, evaluateMint } from '../../config/mint';
+import { deploySettlementContracts } from '../../scripts/lib/deploySettlementContracts';
 import { deployEqowaSuiteFixture } from '../fixtures/deployEqowaSuite';
 
 const INTENT = ethers.id('m2-05-intent');
@@ -11,13 +12,7 @@ const INTENT = ethers.id('m2-05-intent');
 async function deployPaymentFixture() {
   const suite = await deployEqowaSuiteFixture();
   const [owner] = await ethers.getSigners();
-  const forwarder = await ethers.deployContract('EqowaMinimalForwarder', [], owner);
-  const usdt = await ethers.deployContract('MockUSDT', [], owner);
-  const escrow = await ethers.deployContract(
-    'Escrow',
-    [await usdt.getAddress(), owner.address, await forwarder.getAddress()],
-    owner,
-  );
+  const { usdt, escrow } = await deploySettlementContracts({ deployer: owner, owner: owner.address });
 
   const amount = 10n * ONE_USDT;
   await usdt.mint(suite.accounts.alice.address, amount);
