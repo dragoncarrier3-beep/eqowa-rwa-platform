@@ -16,6 +16,8 @@ export type MintException = {
 
 export type StoredMintQuote = MintQuote & {
   rejectReason?: MintRejectReason;
+  /** Hash of the agent mint once broadcast. */
+  mintTxHash?: string;
 };
 
 export interface MintStore {
@@ -24,6 +26,13 @@ export interface MintStore {
   saveDeposit(deposit: MintDeposit): Promise<MintDeposit | 'duplicate'>;
   getDeposit(intentId: string): Promise<MintDeposit | undefined>;
   setQuoteStatus(intentId: string, status: MintQuoteStatus, rejectReason?: MintRejectReason): Promise<void>;
+  /**
+   * Compare-and-set. Moves the intent to `to` only if its current status is in
+   * `from`, and reports whether it did. Used to claim an intent for minting.
+   */
+  transitionQuoteStatus(intentId: string, from: MintQuoteStatus[], to: MintQuoteStatus): Promise<boolean>;
+  setMintTxHash(intentId: string, txHash: string): Promise<void>;
+  listQuotes(filter: { statuses: MintQuoteStatus[]; limit?: number }): Promise<StoredMintQuote[]>;
   addException(row: MintException): Promise<ExceptionRecord>;
   getException(id: string): Promise<ExceptionRecord | undefined>;
   listExceptions(filter?: { intentId?: string; status?: ExceptionStatus }): Promise<ExceptionRecord[]>;
@@ -80,6 +89,27 @@ export class MemoryMintStore implements MintStore {
     if (rejectReason) {
       quote.rejectReason = rejectReason;
     }
+  }
+
+  async transitionQuoteStatus(intentId: string, from: MintQuoteStatus[], to: MintQuoteStatus) {
+    const quote = this.quotes.get(intentId);
+    if (!quote || !from.includes(quote.status)) {
+      return false;
+    }
+    quote.status = to;
+    return true;
+  }
+
+  async setMintTxHash(intentId: string, txHash: string) {
+    const quote = this.quotes.get(intentId);
+    if (quote) {
+      quote.mintTxHash = txHash;
+    }
+  }
+
+  async listQuotes(filter: { statuses: MintQuoteStatus[]; limit?: number }) {
+    const rows = [...this.quotes.values()].filter((quote) => filter.statuses.includes(quote.status));
+    return rows.slice(0, filter.limit ?? rows.length).map((quote) => ({ ...quote }));
   }
 
   async addException(row: MintException) {

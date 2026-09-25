@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS mint_intents (
 ALTER TABLE mint_intents ADD COLUMN IF NOT EXISTS wallet_address TEXT;
 ALTER TABLE mint_intents ADD COLUMN IF NOT EXISTS remainder_amount NUMERIC(78, 0) NOT NULL DEFAULT 0;
 ALTER TABLE mint_intents ADD COLUMN IF NOT EXISTS reject_reason TEXT;
+ALTER TABLE mint_intents ADD COLUMN IF NOT EXISTS mint_tx_hash TEXT;
 
 CREATE TABLE IF NOT EXISTS exceptions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

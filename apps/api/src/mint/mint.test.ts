@@ -8,7 +8,13 @@ import { buildApp } from '../index.ts';
 import { MemoryIdentityStore } from '../kyc/identityStore.ts';
 
 import { MemoryMintStore } from './mintStore.ts';
-import { createMintQuote, recordMintDeposit, settleMintQuote } from './pipeline.ts';
+import {
+  confirmMintQuote,
+  createMintQuote,
+  recordMintDeposit,
+  settleMintQuote,
+  type MintExecutor,
+} from './pipeline.ts';
 
 const WALLET = '0x1111111111111111111111111111111111111111';
 const TOKEN = '0x2222222222222222222222222222222222222222';
@@ -17,6 +23,19 @@ const SEVEN_USDT = (7n * ONE_USDT).toString();
 const FOUR_USDT = (4n * ONE_USDT).toString();
 
 const START = new Date('2026-09-15T12:00:00.000Z');
+
+/** Executor whose mint lands immediately. Records every call. */
+function okExecutor(txHash: string = '0xmint') {
+  const sent: Array<{ to: string; shareAmount: bigint }> = [];
+  const executor: MintExecutor = {
+    send: async ({ to, shareAmount }) => {
+      sent.push({ to, shareAmount });
+      return txHash;
+    },
+    wait: async () => 'success',
+  };
+  return { executor, sent };
+}
 
 function approvedIdentities() {
   const identities = new MemoryIdentityStore();
@@ -181,6 +200,7 @@ test('mints after 12 confirmations when KYC is approved, and keeps remainder as 
     identities,
     now: START,
     currentBlock: 112,
+    mint: okExecutor().executor,
   });
 
   assert.equal(settled.quote?.status, 'minted');
@@ -220,7 +240,7 @@ test('does not mint without an approved KYC record', async () => {
 test('POST /mint/quotes and /mint/settle run the same gates', async () => {
   const mintStore = new MemoryMintStore();
   const identities = await approvedIdentities();
-  const app = buildApp({ mintStore, identityStore: identities, now: () => START });
+  const app = buildApp({ mintStore, identityStore: identities, now: () => START, mint: okExecutor().executor });
 
   const quotedResponse = await app.inject({
     method: 'POST',
@@ -266,47 +286,152 @@ test('POST /mint/quotes and /mint/settle run the same gates', async () => {
   await app.close();
 });
 
-test('calls the agent mint executor and keeps the quote open if it fails', async () => {
+async function readyToMint(amount: string = TEN_USDT) {
   const store = new MemoryMintStore();
   const identities = await approvedIdentities();
-  const quote = await quoted(store);
-  await deposited(store, quote, TEN_USDT, START, 100);
+  const quote = await quoted(store, amount);
+  await deposited(store, quote, amount, START, 100);
+  return { store, identities, quote };
+}
 
-  const calls: Array<{ to: string; shareAmount: bigint }> = [];
-  const minted = await settleMintQuote({
-    intentId: quote.intentId,
-    store,
-    identities,
+function settle(ctx: Awaited<ReturnType<typeof readyToMint>>, mint?: MintExecutor) {
+  return settleMintQuote({
+    intentId: ctx.quote.intentId,
+    store: ctx.store,
+    identities: ctx.identities,
     now: START,
     currentBlock: 112,
-    mint: async ({ to, shareAmount }) => {
-      calls.push({ to, shareAmount });
-      return '0xmint';
-    },
+    mint,
   });
+}
 
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0]?.to, WALLET);
-  assert.equal(calls[0]?.shareAmount, 2n * ONE_SHARE);
-  if ('decision' in minted && minted.decision.action === 'mint' && 'txHash' in minted.decision) {
-    assert.equal(minted.decision.txHash, '0xmint');
+test('sends the agent mint, stores its hash, and marks minted only after the receipt', async () => {
+  const ctx = await readyToMint();
+  const { executor, sent } = okExecutor('0xabc123');
+
+  const minted = await settle(ctx, executor);
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]?.to, WALLET);
+  assert.equal(sent[0]?.shareAmount, 2n * ONE_SHARE);
+  assert.equal(minted.quote?.status, 'minted');
+  assert.equal((await ctx.store.getQuote(ctx.quote.intentId))?.mintTxHash, '0xabc123');
+  if ('decision' in minted && minted.decision.action === 'mint') {
+    assert.equal(minted.decision.txHash, '0xabc123');
   }
+  const mintActions = ctx.store.audit.map((row) => row.action).filter((action) => action.startsWith('mint.'));
+  assert.deepEqual(mintActions, ['mint.sent', 'mint.confirmed']);
+});
 
-  const failedStore = new MemoryMintStore();
-  const failedQuote = await quoted(failedStore);
-  await deposited(failedStore, failedQuote, TEN_USDT, START, 100);
-  const failed = await settleMintQuote({
-    intentId: failedQuote.intentId,
-    store: failedStore,
-    identities,
-    now: START,
-    currentBlock: 112,
-    mint: async () => {
+test('never marks an intent minted when no executor is wired', async () => {
+  const ctx = await readyToMint();
+
+  const result = await settle(ctx);
+
+  assert.equal('error' in result && result.error, 'mint_unavailable');
+  assert.equal((await ctx.store.getQuote(ctx.quote.intentId))?.status, 'deposited');
+});
+
+test('a failed send opens one mint_failed and pauses retries until ops resolve it', async () => {
+  const ctx = await readyToMint();
+  let attempts = 0;
+  const failing: MintExecutor = {
+    send: async () => {
+      attempts += 1;
       throw new Error('rpc down');
     },
+    wait: async () => 'success',
+  };
+
+  const first = await settle(ctx, failing);
+  const second = await settle(ctx, failing);
+  const third = await settle(ctx, failing);
+
+  assert.equal('error' in first && first.error, 'mint_failed');
+  assert.equal('error' in second && second.error, 'mint_paused');
+  assert.equal('error' in third && third.error, 'mint_paused');
+  assert.equal(attempts, 1);
+  assert.equal(ctx.store.exceptions.filter((row) => row.kind === 'mint_failed').length, 1);
+  assert.equal((await ctx.store.getQuote(ctx.quote.intentId))?.status, 'deposited');
+
+  await ctx.store.resolveException(ctx.store.exceptions[0]!.id, {
+    actor: 'ops',
+    resolution: 'rpc back',
+    now: START,
+  });
+  const retried = await settle(ctx, okExecutor().executor);
+  assert.equal(retried.quote?.status, 'minted');
+});
+
+test('a reverted mint returns the intent to deposited and pauses it', async () => {
+  const ctx = await readyToMint();
+  const reverting: MintExecutor = { send: async () => '0xbad', wait: async () => 'reverted' };
+
+  const result = await settle(ctx, reverting);
+
+  assert.equal('error' in result && result.error, 'mint_failed');
+  assert.equal((await ctx.store.getQuote(ctx.quote.intentId))?.status, 'deposited');
+  assert.equal(ctx.store.exceptions[0]?.details.txHash, '0xbad');
+});
+
+test('a pending receipt leaves the intent in minting, and a later settle confirms without re-sending', async () => {
+  const ctx = await readyToMint();
+  const pending: MintExecutor = { send: async () => '0xslow', wait: async () => 'pending' };
+
+  const result = await settle(ctx, pending);
+  assert.equal('error' in result && result.error, 'mint_pending');
+  assert.equal((await ctx.store.getQuote(ctx.quote.intentId))?.status, 'minting');
+
+  const { executor, sent } = okExecutor('0xother');
+  const confirmed = await settle(ctx, executor);
+  assert.equal(sent.length, 0);
+  assert.equal(confirmed.quote?.status, 'minted');
+  if ('decision' in confirmed && confirmed.decision.action === 'mint') {
+    assert.equal(confirmed.decision.txHash, '0xslow');
+  }
+});
+
+test('an intent stuck in minting without a hash goes to ops once and is never re-sent', async () => {
+  const ctx = await readyToMint();
+  await ctx.store.transitionQuoteStatus(ctx.quote.intentId, ['deposited'], 'minting');
+  const confirm = () =>
+    confirmMintQuote({ intentId: ctx.quote.intentId, store: ctx.store, waitFor: async () => 'success' });
+
+  const first = await confirm();
+  await confirm();
+
+  assert.equal('error' in first && first.error, 'mint_unconfirmed');
+  assert.equal(ctx.store.exceptions.filter((row) => row.kind === 'mint_unconfirmed').length, 1);
+  assert.equal((await ctx.store.getQuote(ctx.quote.intentId))?.status, 'minting');
+});
+
+test('only one caller can claim an intent for minting', async () => {
+  const ctx = await readyToMint();
+
+  const first = await ctx.store.transitionQuoteStatus(ctx.quote.intentId, ['deposited'], 'minting');
+  const second = await ctx.store.transitionQuoteStatus(ctx.quote.intentId, ['deposited'], 'minting');
+
+  assert.equal(first, true);
+  assert.equal(second, false);
+  const minting = await ctx.store.listQuotes({ statuses: ['minting'] });
+  assert.deepEqual(
+    minting.map((row) => row.intentId),
+    [ctx.quote.intentId],
+  );
+});
+
+test('POST /mint/settle answers 503 without an executor', async () => {
+  const ctx = await readyToMint();
+  const app = buildApp({ mintStore: ctx.store, identityStore: ctx.identities, now: () => START });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/mint/settle',
+    headers: { 'content-type': 'application/json' },
+    payload: JSON.stringify({ intentId: ctx.quote.intentId, currentBlock: 112 }),
   });
 
-  assert.equal('error' in failed && failed.error, 'mint_failed');
-  assert.equal((await failedStore.getQuote(failedQuote.intentId))?.status, 'deposited');
-  assert.equal(failedStore.exceptions[0]?.kind, 'mint_failed');
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.json().reason, 'mint_unavailable');
+  await app.close();
 });

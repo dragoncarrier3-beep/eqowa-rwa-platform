@@ -1,6 +1,7 @@
 import { getAddress, isAddress } from 'ethers';
 
-import { buildQuote, evaluateMint, type MintDeposit } from '../../../../config/mint.ts';
+import type { MintExecutor, MintReceiptStatus } from '../../../../config/agentMint.ts';
+import { buildQuote, evaluateMint, type MintDeposit, type MintQuoteStatus } from '../../../../config/mint.ts';
 
 import type { IdentityStore } from '../kyc/identityStore.ts';
 
@@ -40,6 +41,7 @@ function serializeQuote(quote: StoredMintQuote) {
     quoteExpiresAt: quote.quoteExpiresAt.toISOString(),
     status: quote.status,
     rejectReason: quote.rejectReason,
+    mintTxHash: quote.mintTxHash,
   };
 }
 
@@ -100,7 +102,36 @@ export async function recordMintDeposit(params: { input: DepositInput; store: Mi
   return { deposit: saved, duplicate: false as const };
 }
 
-export type ExecuteMint = (call: { to: string; shareAmount: bigint; intentId: string }) => Promise<string | void>;
+export type { MintExecutor, MintReceiptStatus };
+
+/** Statuses from which an intent may be claimed for minting. */
+const CLAIMABLE: MintQuoteStatus[] = ['deposited', 'awaiting_confirmations'];
+
+async function hasOpenException(store: MintStore, intentId: string, kind: string) {
+  const open = await store.listExceptions({ intentId, status: 'open' });
+  return open.some((row) => row.kind === kind);
+}
+
+/** Opens `kind` unless an open one already exists for the intent. */
+async function openOnce(store: MintStore, intentId: string, kind: string, details: Record<string, unknown>) {
+  if (await hasOpenException(store, intentId, kind)) {
+    return;
+  }
+  await store.addException({ kind, intentId, details });
+}
+
+function mintedDecision(quote: StoredMintQuote, alreadyMinted: boolean) {
+  return {
+    action: 'mint' as const,
+    alreadyMinted,
+    shares: quote.shares.toString(),
+    shareAmount: quote.shareAmount.toString(),
+    fundsAmount: quote.fundsAmount.toString(),
+    feeAmount: quote.feeAmount.toString(),
+    remainderAmount: quote.remainderAmount.toString(),
+    txHash: quote.mintTxHash,
+  };
+}
 
 export async function settleMintQuote(params: {
   intentId: string;
@@ -108,14 +139,20 @@ export async function settleMintQuote(params: {
   identities: IdentityStore;
   now: Date;
   currentBlock: number;
-  mint?: ExecuteMint;
+  mint?: MintExecutor;
 }) {
   const quote = await params.store.getQuote(params.intentId);
   if (!quote) {
     return { error: 'unknown_intent' as const };
   }
   if (quote.status === 'minted') {
-    return { quote: serializeQuote(quote), decision: { action: 'mint' as const, alreadyMinted: true } };
+    return { quote: serializeQuote(quote), decision: mintedDecision(quote, true) };
+  }
+  if (quote.status === 'minting') {
+    if (!params.mint) {
+      return { error: 'mint_unavailable' as const, quote: serializeQuote(quote) };
+    }
+    return confirmMintQuote({ intentId: params.intentId, store: params.store, waitFor: params.mint.wait });
   }
 
   const deposit = await params.store.getDeposit(params.intentId);
@@ -164,51 +201,117 @@ export async function settleMintQuote(params: {
     return { quote: serializeQuote({ ...quote, status: 'rejected', rejectReason: decision.reason }), decision };
   }
 
-  let txHash: string | undefined;
-  if (params.mint) {
-    try {
-      const hash = await params.mint({
-        to: quote.wallet,
-        shareAmount: decision.shareAmount,
-        intentId: params.intentId,
-      });
-      txHash = hash ?? undefined;
-    } catch (error) {
-      await params.store.addException({
-        kind: 'mint_failed',
-        intentId: params.intentId,
-        details: { reason: error instanceof Error ? error.message : 'mint failed' },
-      });
-      return {
-        error: 'mint_failed' as const,
-        quote: serializeQuote(quote),
-        reason: error instanceof Error ? error.message : 'mint failed',
-      };
-    }
+  // Never record a mint that did not happen. Without an executor the intent
+  // stays where it is and the caller is told why.
+  if (!params.mint) {
+    return { error: 'mint_unavailable' as const, quote: serializeQuote(quote) };
   }
 
-  await params.store.setQuoteStatus(params.intentId, 'minted');
-  if (decision.remainderAmount > 0n) {
+  // A failed mint pauses the intent until ops resolve the exception, so a
+  // reverting mint is not re-sent on every retry.
+  if (await hasOpenException(params.store, params.intentId, 'mint_failed')) {
+    return { error: 'mint_paused' as const, quote: serializeQuote(quote) };
+  }
+
+  const previousStatus = (await params.store.getQuote(params.intentId))?.status ?? quote.status;
+  const claimed = await params.store.transitionQuoteStatus(params.intentId, CLAIMABLE, 'minting');
+  if (!claimed) {
+    return { error: 'not_claimable' as const, quote: serializeQuote(quote) };
+  }
+
+  let txHash: string;
+  try {
+    txHash = await params.mint.send({
+      to: quote.wallet,
+      shareAmount: decision.shareAmount,
+      intentId: params.intentId,
+    });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : 'mint failed';
+    await params.store.transitionQuoteStatus(params.intentId, ['minting'], previousStatus);
+    await openOnce(params.store, params.intentId, 'mint_failed', { reason });
+    return { error: 'mint_failed' as const, quote: serializeQuote({ ...quote, status: previousStatus }), reason };
+  }
+
+  await params.store.setMintTxHash(params.intentId, txHash);
+  await params.store.appendAudit({
+    actor: 'api',
+    action: 'mint.sent',
+    payload: { intentId: params.intentId, txHash, shareAmount: decision.shareAmount.toString() },
+  });
+
+  return confirmMintQuote({ intentId: params.intentId, store: params.store, waitFor: params.mint.wait });
+}
+
+/**
+ * Settles an intent that is in `minting`, from its stored transaction hash.
+ *
+ * `waitFor` may block (the executor's `wait`) or only look the receipt up
+ * (a worker polling `getTransactionReceipt`). A `minting` intent with no hash
+ * means the process stopped between claiming and storing the hash. No
+ * automated retry is safe there, because the mint may still be in the
+ * mempool, so it goes to ops as `mint_unconfirmed`.
+ */
+export async function confirmMintQuote(params: {
+  intentId: string;
+  store: MintStore;
+  waitFor: (txHash: string) => Promise<MintReceiptStatus>;
+}) {
+  const quote = await params.store.getQuote(params.intentId);
+  if (!quote) {
+    return { error: 'unknown_intent' as const };
+  }
+  if (quote.status === 'minted') {
+    return { quote: serializeQuote(quote), decision: mintedDecision(quote, true) };
+  }
+  if (quote.status !== 'minting') {
+    return { error: 'not_minting' as const, quote: serializeQuote(quote) };
+  }
+  if (!quote.mintTxHash) {
+    await openOnce(params.store, params.intentId, 'mint_unconfirmed', {
+      wallet: quote.wallet,
+      shareAmount: quote.shareAmount.toString(),
+    });
+    return { error: 'mint_unconfirmed' as const, quote: serializeQuote(quote) };
+  }
+
+  let status: MintReceiptStatus;
+  try {
+    status = await params.waitFor(quote.mintTxHash);
+  } catch {
+    status = 'pending';
+  }
+
+  if (status === 'pending') {
+    return { error: 'mint_pending' as const, quote: serializeQuote(quote) };
+  }
+
+  if (status === 'reverted') {
+    await params.store.transitionQuoteStatus(params.intentId, ['minting'], 'deposited');
+    await openOnce(params.store, params.intentId, 'mint_failed', { txHash: quote.mintTxHash, reason: 'reverted' });
+    return {
+      error: 'mint_failed' as const,
+      quote: serializeQuote({ ...quote, status: 'deposited' }),
+      reason: 'reverted',
+    };
+  }
+
+  await params.store.transitionQuoteStatus(params.intentId, ['minting'], 'minted');
+  await params.store.appendAudit({
+    actor: 'api',
+    action: 'mint.confirmed',
+    payload: { intentId: params.intentId, txHash: quote.mintTxHash },
+  });
+  if (quote.remainderAmount > 0n) {
     await params.store.addException({
       kind: 'remainder',
       intentId: params.intentId,
-      details: { remainderAmount: decision.remainderAmount.toString() },
+      details: { remainderAmount: quote.remainderAmount.toString() },
     });
   }
 
-  return {
-    quote: serializeQuote({ ...quote, status: 'minted' }),
-    decision: {
-      action: 'mint' as const,
-      alreadyMinted: false,
-      shares: decision.shares.toString(),
-      shareAmount: decision.shareAmount.toString(),
-      fundsAmount: decision.fundsAmount.toString(),
-      feeAmount: decision.feeAmount.toString(),
-      remainderAmount: decision.remainderAmount.toString(),
-      txHash,
-    },
-  };
+  const minted = { ...quote, status: 'minted' as const };
+  return { quote: serializeQuote(minted), decision: mintedDecision(minted, false) };
 }
 
 export { serializeQuote };

@@ -8,7 +8,13 @@ export const QUOTE_TTL_SECONDS = 15 * 60;
 /** Deposit must be this many blocks deep before the pipeline may mint. */
 export const CONFIRMATION_BLOCKS = 12;
 
-export type MintQuoteStatus = 'quoted' | 'deposited' | 'awaiting_confirmations' | 'minted' | 'expired' | 'rejected';
+/**
+ * `minting` means the agent mint was claimed for this intent and possibly
+ * broadcast. Only one caller can move an intent into it, so a retry or a
+ * second worker cannot send the same mint twice.
+ */
+export type MintQuoteStatus =
+  'quoted' | 'deposited' | 'awaiting_confirmations' | 'minting' | 'minted' | 'expired' | 'rejected';
 
 export type MintRejectReason =
   'quote_expired' | 'amount_mismatch' | 'kyc_not_approved' | 'below_share_price' | 'invalid_amount' | 'invalid_wallet';
