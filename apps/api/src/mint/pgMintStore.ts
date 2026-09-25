@@ -22,7 +22,11 @@ type QuoteRow = {
   quote_expires_at: Date;
   status: MintQuoteStatus;
   reject_reason: MintRejectReason | null;
+  mint_tx_hash: string | null;
 };
+
+const QUOTE_COLUMNS = `intent_id, wallet_address, usdt_amount, share_amount, fee_amount,
+              funds_amount, remainder_amount, quote_expires_at, status, reject_reason, mint_tx_hash`;
 
 type DepositRow = {
   intent_id: string;
@@ -82,6 +86,7 @@ function toQuote(row: QuoteRow): StoredMintQuote {
     quoteExpiresAt: new Date(row.quote_expires_at),
     status: row.status,
     rejectReason: row.reject_reason ?? undefined,
+    mintTxHash: row.mint_tx_hash ?? undefined,
   };
 }
 
@@ -129,8 +134,7 @@ export class PgMintStore implements MintStore {
 
   async getQuote(intentId: string) {
     const result = await this.client.query<QuoteRow>(
-      `SELECT intent_id, wallet_address, usdt_amount, share_amount, fee_amount,
-              funds_amount, remainder_amount, quote_expires_at, status, reject_reason
+      `SELECT ${QUOTE_COLUMNS}
        FROM mint_intents
        WHERE intent_id = $1`,
       [intentId],
@@ -196,6 +200,32 @@ export class PgMintStore implements MintStore {
        WHERE intent_id = $1`,
       [intentId, status, rejectReason ?? null],
     );
+  }
+
+  async transitionQuoteStatus(intentId: string, from: MintQuoteStatus[], to: MintQuoteStatus) {
+    const result = await this.client.query(
+      `UPDATE mint_intents
+       SET status = $3
+       WHERE intent_id = $1 AND status = ANY($2::text[])`,
+      [intentId, from, to],
+    );
+    return (result.rowCount ?? 0) === 1;
+  }
+
+  async setMintTxHash(intentId: string, txHash: string) {
+    await this.client.query(`UPDATE mint_intents SET mint_tx_hash = $2 WHERE intent_id = $1`, [intentId, txHash]);
+  }
+
+  async listQuotes(filter: { statuses: MintQuoteStatus[]; limit?: number }) {
+    const result = await this.client.query<QuoteRow>(
+      `SELECT ${QUOTE_COLUMNS}
+       FROM mint_intents
+       WHERE status = ANY($1::text[])
+       ORDER BY created_at ASC
+       LIMIT $2`,
+      [filter.statuses, filter.limit ?? 500],
+    );
+    return result.rows.map(toQuote);
   }
 
   async addException(row: MintException) {

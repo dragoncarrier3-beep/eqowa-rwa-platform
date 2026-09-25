@@ -83,6 +83,7 @@ test('admin can list and resolve an open remainder exception', async () => {
     identities,
     now: START,
     currentBlock: 112,
+    mint: { send: async () => '0xmint', wait: async () => 'success' },
   });
 
   const app = buildApp({ mintStore, identityStore: identities, adminKey: ADMIN, now: () => START });

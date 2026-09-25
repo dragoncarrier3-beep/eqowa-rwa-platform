@@ -19,17 +19,29 @@ import { PgIdentityStore } from './kyc/pgIdentityStore.ts';
 import { fetchSumsubApplicant } from './kyc/sumsubClient.ts';
 import { verifySumsubDigest } from './kyc/sumsubSignature.ts';
 import { MemoryMintStore, type MintStore } from './mint/mintStore.ts';
-import { createMintQuote, recordMintDeposit, settleMintQuote, type ExecuteMint } from './mint/pipeline.ts';
+import { createMintQuote, recordMintDeposit, settleMintQuote, type MintExecutor } from './mint/pipeline.ts';
 import { PgMintStore } from './mint/pgMintStore.ts';
 import { parseForwardRequest, relayEscrowDeposit } from './relayer/relayDeposit.ts';
 import { createAgentSigner, createRelayerSigner } from './signer/fromEnv.ts';
-import { executeTokenMint } from './signer/executeMint.ts';
+import { createTokenMintExecutor } from './signer/executeMint.ts';
 
 dotenv.config({ path: path.resolve(import.meta.dirname, '../../../.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '../.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 type RequestWithRawBody = FastifyRequest & { rawBody?: string };
+
+/** HTTP status for each settle outcome that is not a decision. */
+const SETTLE_ERROR_STATUS = {
+  unknown_intent: 404,
+  mint_unavailable: 503,
+  mint_paused: 409,
+  not_claimable: 409,
+  not_minting: 409,
+  mint_unconfirmed: 409,
+  mint_pending: 202,
+  mint_failed: 502,
+} as const;
 
 const KYC_STATUSES: IdentityRecord['kycStatus'][] = ['pending', 'approved', 'rejected', 'blocked_country'];
 
@@ -50,7 +62,7 @@ export type AppDeps = {
   mintStore?: MintStore;
   lookupApplicant?: ApplicantLookup;
   now?: () => Date;
-  mint?: ExecuteMint;
+  mint?: MintExecutor;
   adminKey?: string;
   relayDeposit?: (input: {
     request: NonNullable<ReturnType<typeof parseForwardRequest>>;
@@ -219,10 +231,12 @@ export function buildApp(deps: AppDeps = {}) {
       mint,
     });
     if ('error' in result) {
-      const code = result.error === 'mint_failed' ? 502 : 404;
-      return reply
-        .code(code)
-        .send({ ok: false, reason: result.error, detail: 'reason' in result ? result.reason : undefined });
+      return reply.code(SETTLE_ERROR_STATUS[result.error]).send({
+        ok: false,
+        reason: result.error,
+        detail: 'reason' in result ? result.reason : undefined,
+        quote: 'quote' in result ? result.quote : undefined,
+      });
     }
     return { ok: true, quote: result.quote, decision: result.decision };
   });
@@ -345,20 +359,27 @@ function rpcProvider() {
   return url ? new JsonRpcProvider(url) : undefined;
 }
 
-function createMintExecutor(): ExecuteMint | undefined {
+/**
+ * Agent mint executor from env. Returns undefined, with the reason logged, when
+ * it cannot be built, so /mint/settle answers 503 instead of pretending to mint.
+ */
+function createMintExecutor(): MintExecutor | undefined {
   const tokenAddress = process.env.TOKEN_ADDRESS;
   const provider = rpcProvider();
   if (!tokenAddress || !provider) {
+    console.warn('Agent mint disabled: TOKEN_ADDRESS and AMOY_RPC_URL are required');
     return undefined;
   }
 
   try {
     const signer = createAgentSigner({ env: process.env, provider });
     if (!signer) {
+      console.warn('Agent mint disabled: set AGENT_SIGNER_PRIVATE_KEY or KMS_KEY_ARN');
       return undefined;
     }
-    return ({ to, shareAmount }) => executeTokenMint({ signer, tokenAddress, to, amount: shareAmount });
-  } catch {
+    return createTokenMintExecutor({ signer, tokenAddress });
+  } catch (error) {
+    console.error('Agent mint disabled:', error instanceof Error ? error.message : error);
     return undefined;
   }
 }

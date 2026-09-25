@@ -1,1 +1,1 @@
-export { executeTokenMint } from '../../../../config/agentMint.ts';
+export { createTokenMintExecutor, executeTokenMint } from '../../../../config/agentMint.ts';

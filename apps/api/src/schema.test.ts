@@ -26,6 +26,7 @@ test('schema defines the Milestone 2 tables', () => {
   assert.match(sql, /wallet_address/);
   assert.match(sql, /resolved_by/);
   assert.match(sql, /resolution TEXT/);
+  assert.match(sql, /mint_tx_hash/);
   assert.doesNotMatch(sql, /UPDATE\s+audit_log/i);
   assert.doesNotMatch(sql, /DELETE\s+FROM\s+audit_log/i);
 });
