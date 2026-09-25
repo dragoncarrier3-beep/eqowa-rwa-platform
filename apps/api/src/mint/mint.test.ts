@@ -9,6 +9,7 @@ import { MemoryIdentityStore } from '../kyc/identityStore.ts';
 
 import { MemoryMintStore } from './mintStore.ts';
 import {
+  approveSafeMint,
   confirmMintQuote,
   createMintQuote,
   recordMintDeposit,
@@ -433,5 +434,131 @@ test('POST /mint/settle answers 503 without an executor', async () => {
 
   assert.equal(response.statusCode, 503);
   assert.equal(response.json().reason, 'mint_unavailable');
+  await app.close();
+});
+
+const HUNDRED_K_USDT = (100_000n * ONE_USDT).toString();
+const SAFE_TX = `0x${'5a'.repeat(32)}`;
+
+test('holds a 100,000 USDT mint for Safe sign-off and never sends it', async () => {
+  const ctx = await readyToMint(HUNDRED_K_USDT);
+  const { executor, sent } = okExecutor();
+
+  const first = await settle(ctx, executor);
+  const second = await settle(ctx, executor);
+
+  assert.equal(first.quote?.status, 'awaiting_safe_approval');
+  assert.equal(
+    'decision' in second && second.decision.action === 'wait' && second.decision.reason,
+    'awaiting_safe_approval',
+  );
+  assert.equal(sent.length, 0);
+  const held = ctx.store.exceptions.filter((row) => row.kind === 'safe_approval_required');
+  assert.equal(held.length, 1);
+  assert.equal(held[0]?.details.usdtAmount, HUNDRED_K_USDT);
+  assert.equal(held[0]?.details.shares, '20000');
+});
+
+test('mints just under the threshold without sign-off', async () => {
+  const ctx = await readyToMint((99_995n * ONE_USDT).toString());
+  const { executor, sent } = okExecutor();
+
+  const minted = await settle(ctx, executor);
+
+  assert.equal(minted.quote?.status, 'minted');
+  assert.equal(sent.length, 1);
+});
+
+test('releases a held mint only through approveSafeMint, not by resolving the exception', async () => {
+  const ctx = await readyToMint(HUNDRED_K_USDT);
+  const { executor, sent } = okExecutor();
+  await settle(ctx, executor);
+
+  // Resolving the exception is an acknowledgement, not a release.
+  await ctx.store.resolveException(ctx.store.exceptions[0]!.id, { actor: 'ops', resolution: 'seen', now: START });
+  const stillHeld = await settle(ctx, executor);
+  assert.equal(stillHeld.quote?.status, 'awaiting_safe_approval');
+  assert.equal(sent.length, 0);
+
+  const bad = await approveSafeMint({
+    intentId: ctx.quote.intentId,
+    store: ctx.store,
+    safeTxHash: '0x1234',
+    actor: 'larry',
+    now: START,
+  });
+  assert.deepEqual(bad, { error: 'invalid_safe_tx' });
+
+  const approved = await approveSafeMint({
+    intentId: ctx.quote.intentId,
+    store: ctx.store,
+    safeTxHash: SAFE_TX,
+    actor: 'larry',
+    now: START,
+  });
+  assert.equal('quote' in approved && approved.quote.status, 'safe_approved');
+  const approvalAudit = ctx.store.audit.find((row) => row.action === 'mint.safe_approved');
+  assert.equal(approvalAudit?.payload.safeTxHash, SAFE_TX);
+  assert.equal(approvalAudit?.actor, 'larry');
+
+  const minted = await settle(ctx, executor);
+  assert.equal(minted.quote?.status, 'minted');
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]?.shareAmount, 20_000n * ONE_SHARE);
+
+  const again = await approveSafeMint({
+    intentId: ctx.quote.intentId,
+    store: ctx.store,
+    safeTxHash: SAFE_TX,
+    actor: 'larry',
+    now: START,
+  });
+  assert.equal('error' in again && again.error, 'not_awaiting_approval');
+});
+
+test('approving resolves the open safe_approval_required exception with the Safe tx', async () => {
+  const ctx = await readyToMint(HUNDRED_K_USDT);
+  await settle(ctx, okExecutor().executor);
+
+  await approveSafeMint({
+    intentId: ctx.quote.intentId,
+    store: ctx.store,
+    safeTxHash: SAFE_TX,
+    actor: 'larry',
+    now: START,
+  });
+
+  const row = ctx.store.exceptions.find((item) => item.kind === 'safe_approval_required');
+  assert.equal(row?.status, 'resolved');
+  assert.equal(row?.resolution, `safe_tx:${SAFE_TX}`);
+  assert.equal(row?.resolvedBy, 'larry');
+});
+
+test('POST /admin/mint/:intentId/approve checks the key, the hash and the state', async () => {
+  const ctx = await readyToMint(HUNDRED_K_USDT);
+  await settle(ctx, okExecutor().executor);
+  const app = buildApp({ mintStore: ctx.store, identityStore: ctx.identities, adminKey: 'k', now: () => START });
+  const approve = (headers: Record<string, string>, safeTxHash: string) =>
+    app.inject({
+      method: 'POST',
+      url: `/admin/mint/${ctx.quote.intentId}/approve`,
+      headers: { 'content-type': 'application/json', ...headers },
+      payload: JSON.stringify({ safeTxHash }),
+    });
+
+  assert.equal((await approve({}, SAFE_TX)).statusCode, 401);
+  assert.equal((await approve({ 'x-admin-key': 'k' }, 'nope')).statusCode, 400);
+  const ok = await approve({ 'x-admin-key': 'k', 'x-admin-actor': 'larry' }, SAFE_TX);
+  assert.equal(ok.statusCode, 200);
+  assert.equal(ok.json().quote.status, 'safe_approved');
+  assert.equal((await approve({ 'x-admin-key': 'k' }, SAFE_TX)).statusCode, 409);
+
+  const unknown = await app.inject({
+    method: 'POST',
+    url: `/admin/mint/0x${'00'.repeat(32)}/approve`,
+    headers: { 'content-type': 'application/json', 'x-admin-key': 'k' },
+    payload: JSON.stringify({ safeTxHash: SAFE_TX }),
+  });
+  assert.equal(unknown.statusCode, 404);
   await app.close();
 });

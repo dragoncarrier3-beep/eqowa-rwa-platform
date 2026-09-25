@@ -16,7 +16,13 @@ import { MemoryIdentityStore, type IdentityRecord, type IdentityStore } from './
 import { fetchSumsubApplicant } from './kyc/sumsubClient.ts';
 import { verifySumsubDigest } from './kyc/sumsubSignature.ts';
 import { MemoryMintStore, type MintStore } from './mint/mintStore.ts';
-import { createMintQuote, recordMintDeposit, settleMintQuote, type MintExecutor } from './mint/pipeline.ts';
+import {
+  approveSafeMint,
+  createMintQuote,
+  recordMintDeposit,
+  settleMintQuote,
+  type MintExecutor,
+} from './mint/pipeline.ts';
 import { parseForwardRequest, relayEscrowDeposit } from './relayer/relayDeposit.ts';
 import { createRelayerSigner } from './signer/fromEnv.ts';
 import { createMintExecutor, createSettlementWorkerFromEnv, createStores, loadEnv, rpcProvider } from './bootstrap.ts';
@@ -301,6 +307,29 @@ export function buildApp(deps: AppDeps = {}) {
       return reply.code(400).send({ ok: false, reason: result });
     }
     return { ok: true, exception: serializeException(result) };
+  });
+
+  app.post('/admin/mint/:intentId/approve', async (request, reply) => {
+    const denied = adminUnauthorized(request, reply, adminKey);
+    if (denied) {
+      return denied;
+    }
+    const params = request.params as { intentId: string };
+    const body = asRecord(request.body);
+    const actorHeader = request.headers['x-admin-actor'];
+    const actor = typeof actorHeader === 'string' && actorHeader.trim() ? actorHeader.trim() : 'admin';
+    const result = await approveSafeMint({
+      intentId: params.intentId,
+      store: mintStore,
+      safeTxHash: asString(body.safeTxHash),
+      actor,
+      now: now(),
+    });
+    if ('error' in result) {
+      const code = { invalid_safe_tx: 400, unknown_intent: 404, not_awaiting_approval: 409 }[result.error];
+      return reply.code(code).send({ ok: false, reason: result.error });
+    }
+    return { ok: true, quote: result.quote };
   });
 
   app.get('/admin/kyc', async (request, reply) => {

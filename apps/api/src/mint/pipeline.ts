@@ -1,7 +1,13 @@
 import { getAddress, isAddress } from 'ethers';
 
 import type { MintExecutor, MintReceiptStatus } from '../../../../config/agentMint.ts';
-import { buildQuote, evaluateMint, type MintDeposit, type MintQuoteStatus } from '../../../../config/mint.ts';
+import {
+  buildQuote,
+  evaluateMint,
+  requiresSafeApproval,
+  type MintDeposit,
+  type MintQuoteStatus,
+} from '../../../../config/mint.ts';
 
 import type { IdentityStore } from '../kyc/identityStore.ts';
 
@@ -105,7 +111,10 @@ export async function recordMintDeposit(params: { input: DepositInput; store: Mi
 export type { MintExecutor, MintReceiptStatus };
 
 /** Statuses from which an intent may be claimed for minting. */
-const CLAIMABLE: MintQuoteStatus[] = ['deposited', 'awaiting_confirmations'];
+const CLAIMABLE: MintQuoteStatus[] = ['deposited', 'awaiting_confirmations', 'safe_approved'];
+
+/** Statuses a large mint may move out of into `awaiting_safe_approval`. */
+const GATEABLE: MintQuoteStatus[] = ['deposited', 'awaiting_confirmations'];
 
 async function hasOpenException(store: MintStore, intentId: string, kind: string) {
   const open = await store.listExceptions({ intentId, status: 'open' });
@@ -154,6 +163,12 @@ export async function settleMintQuote(params: {
     }
     return confirmMintQuote({ intentId: params.intentId, store: params.store, waitFor: params.mint.wait });
   }
+  if (quote.status === 'awaiting_safe_approval') {
+    return {
+      quote: serializeQuote(quote),
+      decision: { action: 'wait' as const, reason: 'awaiting_safe_approval' as const },
+    };
+  }
 
   const deposit = await params.store.getDeposit(params.intentId);
   const identity = await params.identities.getByWallet(quote.wallet);
@@ -201,6 +216,29 @@ export async function settleMintQuote(params: {
     return { quote: serializeQuote({ ...quote, status: 'rejected', rejectReason: decision.reason }), decision };
   }
 
+  // Large mints stop here until the Safe owners sign off. The gate sits after
+  // KYC and the 12-block wait, so ops only see mints that would otherwise go.
+  if (deposit && requiresSafeApproval(deposit.amount) && quote.status !== 'safe_approved') {
+    const held = await params.store.transitionQuoteStatus(params.intentId, GATEABLE, 'awaiting_safe_approval');
+    if (held) {
+      await openOnce(params.store, params.intentId, 'safe_approval_required', {
+        wallet: quote.wallet,
+        usdtAmount: deposit.amount.toString(),
+        shares: decision.shares.toString(),
+        depositTxHash: deposit.txHash,
+      });
+      await params.store.appendAudit({
+        actor: 'api',
+        action: 'mint.held_for_safe',
+        payload: { intentId: params.intentId, usdtAmount: deposit.amount.toString() },
+      });
+    }
+    return {
+      quote: serializeQuote({ ...quote, status: 'awaiting_safe_approval' }),
+      decision: { action: 'wait' as const, reason: 'awaiting_safe_approval' as const },
+    };
+  }
+
   // Never record a mint that did not happen. Without an executor the intent
   // stays where it is and the caller is told why.
   if (!params.mint) {
@@ -241,6 +279,58 @@ export async function settleMintQuote(params: {
   });
 
   return confirmMintQuote({ intentId: params.intentId, store: params.store, waitFor: params.mint.wait });
+}
+
+const SAFE_TX_HASH = /^0x[0-9a-fA-F]{64}$/;
+
+/**
+ * Releases a mint held for Safe sign-off. `safeTxHash` is the Safe transaction
+ * the owners executed to approve it, kept as evidence on the exception and in
+ * the audit log.
+ *
+ * The API records the evidence; it does not read the Safe on-chain, and the
+ * Safe is not the token agent, so the mint itself still goes through the
+ * agent signer. Executing the mint from the Safe is outside Milestone 3.
+ */
+export async function approveSafeMint(params: {
+  intentId: string;
+  store: MintStore;
+  safeTxHash: string;
+  actor: string;
+  now: Date;
+}) {
+  if (!SAFE_TX_HASH.test(params.safeTxHash)) {
+    return { error: 'invalid_safe_tx' as const };
+  }
+  const quote = await params.store.getQuote(params.intentId);
+  if (!quote) {
+    return { error: 'unknown_intent' as const };
+  }
+  const released = await params.store.transitionQuoteStatus(
+    params.intentId,
+    ['awaiting_safe_approval'],
+    'safe_approved',
+  );
+  if (!released) {
+    return { error: 'not_awaiting_approval' as const, quote: serializeQuote(quote) };
+  }
+
+  const open = await params.store.listExceptions({ intentId: params.intentId, status: 'open' });
+  for (const row of open.filter((item) => item.kind === 'safe_approval_required')) {
+    await params.store.resolveException(row.id, {
+      actor: params.actor,
+      resolution: `safe_tx:${params.safeTxHash}`,
+      now: params.now,
+    });
+  }
+  await params.store.appendAudit({
+    actor: params.actor,
+    action: 'mint.safe_approved',
+    payload: { intentId: params.intentId, safeTxHash: params.safeTxHash },
+    now: params.now,
+  });
+
+  return { quote: serializeQuote({ ...quote, status: 'safe_approved' }) };
 }
 
 /**

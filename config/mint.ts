@@ -1,6 +1,6 @@
 import { keccak256, randomBytes } from 'ethers';
 
-import { SHARE_PRICE_USDT, shareBaseUnits, splitUsdtDeposit } from './eqowa';
+import { ONE_USDT, SHARE_PRICE_USDT, shareBaseUnits, splitUsdtDeposit } from './eqowa';
 
 /** A quoted intent dies if no matching deposit arrives within this window. */
 export const QUOTE_TTL_SECONDS = 15 * 60;
@@ -9,12 +9,35 @@ export const QUOTE_TTL_SECONDS = 15 * 60;
 export const CONFIRMATION_BLOCKS = 12;
 
 /**
+ * Mints paid with this much USDT or more wait for sign-off by the 2-of-3 Safe
+ * owners. Below it minting is automatic. Client rule of 23 August 2026:
+ * "mints under $100k can be fully automated; any mint above that threshold
+ * requires dual-admin Gnosis Safe sign-off".
+ */
+export const SAFE_APPROVAL_THRESHOLD_USDT = 100_000n * ONE_USDT;
+
+export function requiresSafeApproval(depositAmount: bigint): boolean {
+  return depositAmount >= SAFE_APPROVAL_THRESHOLD_USDT;
+}
+
+/**
  * `minting` means the agent mint was claimed for this intent and possibly
  * broadcast. Only one caller can move an intent into it, so a retry or a
  * second worker cannot send the same mint twice.
+ *
+ * `awaiting_safe_approval` holds a large mint until the Safe owners sign off;
+ * `safe_approved` releases it to the normal mint path.
  */
 export type MintQuoteStatus =
-  'quoted' | 'deposited' | 'awaiting_confirmations' | 'minting' | 'minted' | 'expired' | 'rejected';
+  | 'quoted'
+  | 'deposited'
+  | 'awaiting_confirmations'
+  | 'awaiting_safe_approval'
+  | 'safe_approved'
+  | 'minting'
+  | 'minted'
+  | 'expired'
+  | 'rejected';
 
 export type MintRejectReason =
   'quote_expired' | 'amount_mismatch' | 'kyc_not_approved' | 'below_share_price' | 'invalid_amount' | 'invalid_wallet';
@@ -44,7 +67,7 @@ export type MintDeposit = {
 
 export type MintWaitDecision = {
   action: 'wait';
-  reason: 'awaiting_deposit' | 'awaiting_confirmations';
+  reason: 'awaiting_deposit' | 'awaiting_confirmations' | 'awaiting_safe_approval';
   confirmations?: number;
 };
 

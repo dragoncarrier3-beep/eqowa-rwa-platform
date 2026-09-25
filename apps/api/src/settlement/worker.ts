@@ -198,7 +198,9 @@ export function createSettlementWorker(deps: SettlementWorkerDeps) {
       }
     }
 
-    for (const quote of await deps.mintStore.listQuotes({ statuses: ['deposited', 'awaiting_confirmations'] })) {
+    for (const quote of await deps.mintStore.listQuotes({
+      statuses: ['deposited', 'awaiting_confirmations', 'safe_approved'],
+    })) {
       try {
         const before = quote.status;
         const settled = await settleMintQuote({
