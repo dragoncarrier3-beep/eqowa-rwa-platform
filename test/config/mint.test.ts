@@ -1,7 +1,14 @@
 import { expect } from 'chai';
 
 import { ONE_SHARE, ONE_USDT, SHARE_PRICE_USDT, splitUsdtDeposit } from '../../config/eqowa';
-import { CONFIRMATION_BLOCKS, QUOTE_TTL_SECONDS, buildQuote, evaluateMint } from '../../config/mint';
+import {
+  CONFIRMATION_BLOCKS,
+  QUOTE_TTL_SECONDS,
+  SAFE_APPROVAL_THRESHOLD_USDT,
+  buildQuote,
+  evaluateMint,
+  requiresSafeApproval,
+} from '../../config/mint';
 
 const WALLET = '0x1111111111111111111111111111111111111111';
 const NOW = new Date('2026-09-15T12:00:00.000Z');
@@ -24,6 +31,15 @@ describe('payment-to-mint quote', () => {
     expect(buildQuote({ wallet: WALLET, usdtAmount: 4n * ONE_USDT, now: NOW })).to.deep.equal({
       error: 'below_share_price',
     });
+  });
+});
+
+describe('Safe approval threshold', () => {
+  it('holds mints of 100,000 USDT or more and lets smaller ones through', () => {
+    expect(SAFE_APPROVAL_THRESHOLD_USDT).to.equal(100_000n * ONE_USDT);
+    expect(requiresSafeApproval(100_000n * ONE_USDT - 1n)).to.equal(false);
+    expect(requiresSafeApproval(100_000n * ONE_USDT)).to.equal(true);
+    expect(requiresSafeApproval(250_000n * ONE_USDT)).to.equal(true);
   });
 });
 

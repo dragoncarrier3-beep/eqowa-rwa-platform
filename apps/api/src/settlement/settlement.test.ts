@@ -6,7 +6,7 @@ import { ONE_SHARE, ONE_USDT } from '../../../../config/eqowa.ts';
 
 import { MemoryIdentityStore } from '../kyc/identityStore.ts';
 import { MemoryMintStore } from '../mint/mintStore.ts';
-import { createMintQuote, type MintExecutor } from '../mint/pipeline.ts';
+import { approveSafeMint, createMintQuote, type MintExecutor } from '../mint/pipeline.ts';
 
 import { ESCROW_DEPOSITS_CURSOR, MemorySyncStateStore } from './syncState.ts';
 import { createSettlementWorker } from './worker.ts';
@@ -302,4 +302,39 @@ test('overlapping tick calls share one pass', async () => {
 
   assert.equal(a, b);
   assert.equal(sent.length, 1);
+});
+
+test('holds a 100,000 USDT deposit for Safe sign-off, then mints it after approval', async () => {
+  const ctx = await setup();
+  const { executor, sent } = fakeExecutor(ctx.chain);
+  const big = await createMintQuote({
+    input: { wallet: WALLET, usdtAmount: (100_000n * ONE_USDT).toString() },
+    store: ctx.mintStore,
+    now: START,
+  });
+  if ('error' in big) {
+    throw new Error(big.error);
+  }
+  const intentId = big.quote.intentId;
+  ctx.chain.deposit(intentId, 100_000n * ONE_USDT, 100);
+  ctx.chain.head = 112;
+  const worker = ctx.build(executor);
+
+  await worker.tick();
+  await worker.tick();
+  assert.equal((await ctx.mintStore.getQuote(intentId))?.status, 'awaiting_safe_approval');
+  assert.equal(sent.length, 0);
+
+  await approveSafeMint({
+    intentId,
+    store: ctx.mintStore,
+    safeTxHash: `0x${'5a'.repeat(32)}`,
+    actor: 'larry',
+    now: START,
+  });
+  await worker.tick();
+
+  assert.equal((await ctx.mintStore.getQuote(intentId))?.status, 'minted');
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]?.shareAmount, 20_000n * ONE_SHARE);
 });
