@@ -20,7 +20,8 @@
     "api:dev": "npm --prefix apps/api run dev",
     "api:test": "npm --prefix apps/api test",
     "api:migrate": "npm --prefix apps/api run migrate",
-    "api:index": "npm --prefix apps/api run index"
+    "api:index": "npm --prefix apps/api run index",
+    "api:worker": "npm --prefix apps/api run worker"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",

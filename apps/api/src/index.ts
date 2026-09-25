@@ -1,9 +1,7 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import dotenv from 'dotenv';
 import Fastify, { type FastifyRequest } from 'fastify';
-import { JsonRpcProvider } from 'ethers';
 import pg from 'pg';
 
 import {
@@ -15,19 +13,15 @@ import {
 } from './admin/serialize.ts';
 import { applySumsubWebhook, type ApplicantLookup } from './kyc/applyKyc.ts';
 import { MemoryIdentityStore, type IdentityRecord, type IdentityStore } from './kyc/identityStore.ts';
-import { PgIdentityStore } from './kyc/pgIdentityStore.ts';
 import { fetchSumsubApplicant } from './kyc/sumsubClient.ts';
 import { verifySumsubDigest } from './kyc/sumsubSignature.ts';
 import { MemoryMintStore, type MintStore } from './mint/mintStore.ts';
 import { createMintQuote, recordMintDeposit, settleMintQuote, type MintExecutor } from './mint/pipeline.ts';
-import { PgMintStore } from './mint/pgMintStore.ts';
 import { parseForwardRequest, relayEscrowDeposit } from './relayer/relayDeposit.ts';
-import { createAgentSigner, createRelayerSigner } from './signer/fromEnv.ts';
-import { createTokenMintExecutor } from './signer/executeMint.ts';
+import { createRelayerSigner } from './signer/fromEnv.ts';
+import { createMintExecutor, createSettlementWorkerFromEnv, createStores, loadEnv, rpcProvider } from './bootstrap.ts';
 
-dotenv.config({ path: path.resolve(import.meta.dirname, '../../../.env') });
-dotenv.config({ path: path.resolve(process.cwd(), '../.env') });
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+loadEnv();
 
 type RequestWithRawBody = FastifyRequest & { rawBody?: string };
 
@@ -354,36 +348,6 @@ export function buildApp(deps: AppDeps = {}) {
   return app;
 }
 
-function rpcProvider() {
-  const url = process.env.AMOY_RPC_URL;
-  return url ? new JsonRpcProvider(url) : undefined;
-}
-
-/**
- * Agent mint executor from env. Returns undefined, with the reason logged, when
- * it cannot be built, so /mint/settle answers 503 instead of pretending to mint.
- */
-function createMintExecutor(): MintExecutor | undefined {
-  const tokenAddress = process.env.TOKEN_ADDRESS;
-  const provider = rpcProvider();
-  if (!tokenAddress || !provider) {
-    console.warn('Agent mint disabled: TOKEN_ADDRESS and AMOY_RPC_URL are required');
-    return undefined;
-  }
-
-  try {
-    const signer = createAgentSigner({ env: process.env, provider });
-    if (!signer) {
-      console.warn('Agent mint disabled: set AGENT_SIGNER_PRIVATE_KEY or KMS_KEY_ARN');
-      return undefined;
-    }
-    return createTokenMintExecutor({ signer, tokenAddress });
-  } catch (error) {
-    console.error('Agent mint disabled:', error instanceof Error ? error.message : error);
-    return undefined;
-  }
-}
-
 function createRelayHandler(): AppDeps['relayDeposit'] {
   const provider = rpcProvider();
   const escrowAddress = process.env.ESCROW_ADDRESS;
@@ -409,23 +373,41 @@ function createRelayHandler(): AppDeps['relayDeposit'] {
 }
 
 async function main() {
-  let store: IdentityStore = new MemoryIdentityStore();
-  let mintStore: MintStore = new MemoryMintStore();
-  if (process.env.DATABASE_URL) {
-    const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
-    store = new PgIdentityStore(pool);
-    mintStore = new PgMintStore(pool);
+  const stores = createStores();
+
+  const mint = createMintExecutor();
+  if ('disabled' in mint) {
+    console.warn(`Agent mint disabled: ${mint.disabled}`);
   }
 
   const app = buildApp({
-    identityStore: store,
-    mintStore,
+    identityStore: stores.identities,
+    mintStore: stores.mintStore,
     lookupApplicant: (applicantId) => fetchSumsubApplicant(applicantId),
-    mint: createMintExecutor(),
+    mint: 'executor' in mint ? mint.executor : undefined,
     relayDeposit: createRelayHandler(),
   });
   const port = Number(process.env.API_PORT ?? 3001);
   await app.listen({ port, host: '0.0.0.0' });
+
+  // Runs in this process unless SETTLEMENT_WORKER=off, for example when the
+  // standalone `npm run api:worker` is used instead.
+  const settlement = createSettlementWorkerFromEnv(stores);
+  if ('worker' in settlement) {
+    settlement.worker.start();
+  } else {
+    app.log.warn(`Settlement worker off: ${settlement.disabled}`);
+  }
+
+  const shutdown = async () => {
+    if ('worker' in settlement) {
+      await settlement.worker.stop();
+    }
+    await app.close();
+    await stores.pool?.end();
+  };
+  process.once('SIGINT', () => void shutdown());
+  process.once('SIGTERM', () => void shutdown());
 }
 
 function isMainModule() {

@@ -14,6 +14,7 @@ const TABLES = [
   'exceptions',
   'audit_log',
   'kyc_events',
+  'sync_state',
 ];
 
 test('schema defines the Milestone 2 tables', () => {
