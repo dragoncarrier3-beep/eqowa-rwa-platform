@@ -45,3 +45,8 @@ jobs:
 
       - name: Run API tests
         run: npm run api:test
+
+      - name: Lifecycle simulation on a local chain
+        # Deploys the suite and escrow with the production scripts onto a
+        # Hardhat node and runs the whole payment-to-mint lifecycle.
+        run: npm run simulate:local
