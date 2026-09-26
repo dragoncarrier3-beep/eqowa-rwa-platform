@@ -15,6 +15,9 @@ dist/
 deployments/*.json
 !deployments/.gitkeep
 
+# Simulation evidence. Commit an Amoy report on purpose with git add -f.
+reports/
+
 # Editor / OS
 .DS_Store
 Thumbs.db
