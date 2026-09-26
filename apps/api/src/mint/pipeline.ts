@@ -1,6 +1,7 @@
 import { getAddress, isAddress } from 'ethers';
 
 import type { MintExecutor, MintReceiptStatus } from '../../../../config/agentMint.ts';
+import { decodeRevert } from '../../../../config/errors.ts';
 import {
   buildQuote,
   evaluateMint,
@@ -265,9 +266,12 @@ export async function settleMintQuote(params: {
       intentId: params.intentId,
     });
   } catch (error) {
-    const reason = error instanceof Error ? error.message : 'mint failed';
+    // Store a stable code and a readable reason, so ops see "The receiving
+    // wallet has no verified identity" rather than a raw revert.
+    const revert = decodeRevert(error);
+    const reason = revert.message;
     await params.store.transitionQuoteStatus(params.intentId, ['minting'], previousStatus);
-    await openOnce(params.store, params.intentId, 'mint_failed', { reason });
+    await openOnce(params.store, params.intentId, 'mint_failed', { reason, code: revert.code });
     return { error: 'mint_failed' as const, quote: serializeQuote({ ...quote, status: previousStatus }), reason };
   }
 

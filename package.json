@@ -7,6 +7,7 @@
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",
+    "test:gas": "node -e \"process.env.REPORT_GAS='true';require('child_process').execSync('npx hardhat test',{stdio:'inherit'})\"",
     "coverage": "hardhat coverage",
     "lint:sol": "solhint --max-warnings 0 \"contracts/**/*.sol\"",
     "format": "prettier --write \"contracts/**/*.sol\" \"test/**/*.ts\" \"scripts/**/*.ts\" \"config/**/*.ts\" \"apps/api/src/**/*.ts\"",
