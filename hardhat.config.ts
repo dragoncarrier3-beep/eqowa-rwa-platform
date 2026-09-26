@@ -49,8 +49,13 @@ const config: HardhatUserConfig = {
       },
     ],
   },
+  // npm run test:gas writes reports/gas.txt. Costs in docs/GAS.md are priced
+  // at the pinned Amoy gas price, so no price feed is queried.
   gasReporter: {
     enabled: process.env.REPORT_GAS === 'true',
+    outputFile: 'reports/gas.txt',
+    noColors: true,
+    excludeContracts: ['contracts/trex/'],
   },
   paths: {
     sources: './contracts',

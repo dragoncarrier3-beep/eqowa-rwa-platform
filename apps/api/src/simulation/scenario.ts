@@ -11,6 +11,7 @@ import {
 import OnchainID from '@onchain-id/solidity';
 
 import { CLAIM_DATA, CLAIM_SCHEME_ECDSA, signClaim } from '../../../../config/claims.ts';
+import { decodeRevert } from '../../../../config/errors.ts';
 import { COUNTRY, ONE_SHARE, ONE_USDT, REQUIRED_CLAIM_TOPICS, TOKEN_DECIMALS } from '../../../../config/eqowa.ts';
 import { encodeEscrowDeposit, FORWARD_REQUEST_TYPES, forwarderDomain } from '../../../../config/forwarder.ts';
 import { QUOTE_TTL_SECONDS } from '../../../../config/mint.ts';
@@ -66,8 +67,8 @@ const shares = (amount: bigint) => formatUnits(amount, TOKEN_DECIMALS);
 const usdt = (whole: bigint) => whole * ONE_USDT;
 
 function reason(error: unknown): string {
-  const e = error as { reason?: string; shortMessage?: string; message?: string };
-  return e.reason ?? e.shortMessage ?? e.message ?? String(error);
+  const revert = decodeRevert(error);
+  return revert.source === 'unknown' ? revert.message : `${revert.code} (${revert.message})`;
 }
 
 /**

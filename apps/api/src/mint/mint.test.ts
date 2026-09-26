@@ -354,6 +354,10 @@ test('a failed send opens one mint_failed and pauses retries until ops resolve i
   assert.equal(attempts, 1);
   assert.equal(ctx.store.exceptions.filter((row) => row.kind === 'mint_failed').length, 1);
   assert.equal((await ctx.store.getQuote(ctx.quote.intentId))?.status, 'deposited');
+  assert.deepEqual(
+    { reason: ctx.store.exceptions[0]?.details.reason, code: ctx.store.exceptions[0]?.details.code },
+    { reason: 'rpc down', code: 'reverted' },
+  );
 
   await ctx.store.resolveException(ctx.store.exceptions[0]!.id, {
     actor: 'ops',
@@ -561,4 +565,25 @@ test('POST /admin/mint/:intentId/approve checks the key, the hash and the state'
   });
   assert.equal(unknown.statusCode, 404);
   await app.close();
+});
+
+test('a reverting mint is queued with the decoded code and message', async () => {
+  const ctx = await readyToMint();
+  // Revert data as a node returns it for require(false, "Identity is not verified.").
+  const data =
+    '0x08c379a0' +
+    '0000000000000000000000000000000000000000000000000000000000000020' +
+    '0000000000000000000000000000000000000000000000000000000000000019' +
+    '4964656e74697479206973206e6f742076657269666965642e00000000000000';
+  const reverting: MintExecutor = {
+    send: async () => {
+      throw Object.assign(new Error('execution reverted'), { data });
+    },
+    wait: async () => 'success',
+  };
+
+  await settle(ctx, reverting);
+
+  assert.equal(ctx.store.exceptions[0]?.details.code, 'identity_not_verified');
+  assert.match(String(ctx.store.exceptions[0]?.details.reason), /no verified identity/);
 });
