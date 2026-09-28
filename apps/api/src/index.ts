@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { isAddress } from 'ethers';
 import Fastify, { type FastifyRequest } from 'fastify';
 import pg from 'pg';
 
@@ -11,6 +12,7 @@ import {
   serializeIdentity,
   serializeKycEvent,
 } from './admin/serialize.ts';
+import type { AssetCatalog } from './assets/catalog.ts';
 import { applySumsubWebhook, type ApplicantLookup } from './kyc/applyKyc.ts';
 import { MemoryIdentityStore, type IdentityRecord, type IdentityStore } from './kyc/identityStore.ts';
 import { fetchSumsubApplicant } from './kyc/sumsubClient.ts';
@@ -25,7 +27,14 @@ import {
 } from './mint/pipeline.ts';
 import { parseForwardRequest, relayEscrowDeposit } from './relayer/relayDeposit.ts';
 import { createRelayerSigner } from './signer/fromEnv.ts';
-import { createMintExecutor, createSettlementWorkerFromEnv, createStores, loadEnv, rpcProvider } from './bootstrap.ts';
+import {
+  createAssetCatalogFromEnv,
+  createMintExecutor,
+  createSettlementWorkerFromEnv,
+  createStores,
+  loadEnv,
+  rpcProvider,
+} from './bootstrap.ts';
 
 loadEnv();
 
@@ -64,6 +73,7 @@ export type AppDeps = {
   now?: () => Date;
   mint?: MintExecutor;
   adminKey?: string;
+  assets?: AssetCatalog;
   relayDeposit?: (input: {
     request: NonNullable<ReturnType<typeof parseForwardRequest>>;
     signature: string;
@@ -80,6 +90,7 @@ export function buildApp(deps: AppDeps = {}) {
   const mint = deps.mint;
   const relayDeposit = deps.relayDeposit;
   const adminKey = deps.adminKey ?? process.env.ADMIN_API_KEY ?? '';
+  const assets = deps.assets;
 
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (request, body, done) => {
     const raw = typeof body === 'string' ? body : Buffer.from(body as ArrayBuffer).toString('utf8');
@@ -112,6 +123,39 @@ export function buildApp(deps: AppDeps = {}) {
       });
     } finally {
       await client.end().catch(() => undefined);
+    }
+  });
+
+  // Public: the landing page and asset page read live token figures here.
+  app.get('/assets', async (request, reply) => {
+    if (!assets) {
+      return reply.code(503).send({ ok: false, reason: 'assets_unavailable' });
+    }
+    try {
+      return { ok: true, assets: await assets.list() };
+    } catch (error) {
+      request.log.error({ err: error }, 'asset read failed');
+      return reply.code(503).send({ ok: false, reason: 'chain_unavailable' });
+    }
+  });
+
+  app.get('/assets/:token', async (request, reply) => {
+    const params = request.params as { token: string };
+    if (!isAddress(params.token)) {
+      return reply.code(400).send({ ok: false, reason: 'invalid_address' });
+    }
+    if (!assets) {
+      return reply.code(503).send({ ok: false, reason: 'assets_unavailable' });
+    }
+    try {
+      const asset = await assets.get(params.token);
+      if (!asset) {
+        return reply.code(404).send({ ok: false, reason: 'unknown_asset' });
+      }
+      return { ok: true, asset };
+    } catch (error) {
+      request.log.error({ err: error }, 'asset read failed');
+      return reply.code(503).send({ ok: false, reason: 'chain_unavailable' });
     }
   });
 
@@ -409,7 +453,13 @@ async function main() {
     console.warn(`Agent mint disabled: ${mint.disabled}`);
   }
 
+  const assets = createAssetCatalogFromEnv();
+  if ('disabled' in assets) {
+    console.warn(`Asset listing off: ${assets.disabled}`);
+  }
+
   const app = buildApp({
+    assets: 'catalog' in assets ? assets.catalog : undefined,
     identityStore: stores.identities,
     mintStore: stores.mintStore,
     lookupApplicant: (applicantId) => fetchSumsubApplicant(applicantId),
