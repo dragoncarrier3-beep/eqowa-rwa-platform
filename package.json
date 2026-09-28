@@ -10,8 +10,8 @@
     "test:gas": "node -e \"process.env.REPORT_GAS='true';require('child_process').execSync('npx hardhat test',{stdio:'inherit'})\"",
     "coverage": "hardhat coverage",
     "lint:sol": "solhint --max-warnings 0 \"contracts/**/*.sol\"",
-    "format": "prettier --write \"contracts/**/*.sol\" \"test/**/*.ts\" \"scripts/**/*.ts\" \"config/**/*.ts\" \"apps/api/src/**/*.ts\"",
-    "format:check": "prettier --check \"contracts/**/*.sol\" \"test/**/*.ts\" \"scripts/**/*.ts\" \"config/**/*.ts\" \"apps/api/src/**/*.ts\"",
+    "format": "prettier --write \"contracts/**/*.sol\" \"test/**/*.ts\" \"scripts/**/*.ts\" \"config/**/*.ts\" \"apps/api/src/**/*.ts\" \"apps/web/**/*.{ts,tsx}\"",
+    "format:check": "prettier --check \"contracts/**/*.sol\" \"test/**/*.ts\" \"scripts/**/*.ts\" \"config/**/*.ts\" \"apps/api/src/**/*.ts\" \"apps/web/**/*.{ts,tsx}\"",
     "deploy:amoy": "hardhat run scripts/deploy.ts --network amoy",
     "create-safe:amoy": "hardhat run scripts/createSafe.ts --network amoy",
     "deploy-settlement:amoy": "hardhat run scripts/deploySettlement.ts --network amoy",
@@ -24,7 +24,12 @@
     "api:index": "npm --prefix apps/api run index",
     "api:worker": "npm --prefix apps/api run worker",
     "simulate:local": "npm --prefix apps/api run simulate:local",
-    "simulate:amoy": "npm --prefix apps/api run simulate -- --network amoy"
+    "simulate:amoy": "npm --prefix apps/api run simulate -- --network amoy",
+    "web:dev": "npm --prefix apps/web run dev",
+    "web:build": "npm --prefix apps/web run build",
+    "web:test": "npm --prefix apps/web test",
+    "web:lint": "npm --prefix apps/web run lint",
+    "web:typecheck": "npm --prefix apps/web run typecheck"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
