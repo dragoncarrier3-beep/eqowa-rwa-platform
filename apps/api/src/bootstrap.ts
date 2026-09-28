@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { JsonRpcProvider, isAddress } from 'ethers';
 import pg from 'pg';
 
+import { createAssetCatalog, type AssetCatalog } from './assets/catalog.ts';
 import { MemoryIdentityStore, type IdentityStore } from './kyc/identityStore.ts';
 import { PgIdentityStore } from './kyc/pgIdentityStore.ts';
 import { MemoryMintStore, type MintStore } from './mint/mintStore.ts';
@@ -126,4 +127,42 @@ export function createSettlementWorkerFromEnv(
     chunkSize: positiveInt(env.SETTLEMENT_LOG_CHUNK, 2_000),
   };
   return { worker: createSettlementWorker(deps) };
+}
+
+/**
+ * Public asset listing from env: the token plus the compliance modules that
+ * report holders and caps (addresses from deployments/<network>.json).
+ * A module left unset reads as null rather than failing the listing.
+ */
+export function createAssetCatalogFromEnv(
+  env: Env = process.env,
+  provider = rpcProvider(env),
+): { catalog: AssetCatalog } | { disabled: string } {
+  if (!env.TOKEN_ADDRESS || !provider) {
+    return { disabled: 'TOKEN_ADDRESS and AMOY_RPC_URL are required' };
+  }
+  const moduleVars = ['HOLDER_COUNT_MODULE_ADDRESS', 'BALANCE_CAP_MODULE_ADDRESS', 'DAILY_MINT_CAP_MODULE_ADDRESS'];
+  for (const name of ['TOKEN_ADDRESS', ...moduleVars]) {
+    if (env[name] && !isAddress(env[name])) {
+      return { disabled: `${name} is not an address` };
+    }
+  }
+
+  return {
+    catalog: createAssetCatalog({
+      chain: provider,
+      chainId: positiveInt(env.CHAIN_ID, 80002),
+      sources: [
+        {
+          tokenAddress: env.TOKEN_ADDRESS,
+          modules: {
+            holderCountCap: env.HOLDER_COUNT_MODULE_ADDRESS || undefined,
+            balanceCap: env.BALANCE_CAP_MODULE_ADDRESS || undefined,
+            dailyMintCap: env.DAILY_MINT_CAP_MODULE_ADDRESS || undefined,
+          },
+        },
+      ],
+      ttlMs: positiveInt(env.ASSET_CACHE_MS, 15_000),
+    }),
+  };
 }
