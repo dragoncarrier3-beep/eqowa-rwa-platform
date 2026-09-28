@@ -1,4 +1,4 @@
-import type { MintQuoteStatus } from '@config/mint';
+import type { MintQuoteStatus } from '@config/mintStatus';
 
 import { Badge, type BadgeProps } from '@/components/ui/badge';
 

@@ -1,7 +1,7 @@
 import Image from 'next/image';
 
 import { SHARE_PRICE_USDT, TOKEN_NAME, TOKEN_SYMBOL } from '@config/eqowa';
-import type { MintQuoteStatus } from '@config/mint';
+import type { MintQuoteStatus } from '@config/mintStatus';
 
 import { LegalDraftBanner } from '@/components/legal-draft-banner';
 import { StatTile } from '@/components/stat-tile';
