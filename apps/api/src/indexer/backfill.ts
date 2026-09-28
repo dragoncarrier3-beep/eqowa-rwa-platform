@@ -4,18 +4,18 @@ import dotenv from 'dotenv';
 import { JsonRpcProvider } from 'ethers';
 import pg from 'pg';
 
-import { TOKEN_DECIMALS, TOKEN_NAME, TOKEN_SYMBOL } from '../../../../config/eqowa.ts';
+import { PgSyncStateStore } from '../settlement/syncState.ts';
 
-import { indexTokenLogs } from './indexLogs.ts';
-import { PgEventStore } from './pgStore.ts';
+import { PgTokenLedger } from './pgLedger.ts';
+import { createTokenIndexer } from './tokenWorker.ts';
 
 dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
 dotenv.config();
 
 /**
- * Pull Transfer and AddressFrozen from the configured token and write them
- * to Postgres. Used against Hardhat or Amoy. Dashboard reads the tables,
- * not live RPC.
+ * One catch-up pass of the token indexer: events and balances to Postgres,
+ * up to 12 blocks behind head. Same code path as the in-process indexer, so
+ * running both is safe (events are stored once).
  */
 async function main() {
   const rpc = process.env.AMOY_RPC_URL ?? 'http://127.0.0.1:8545';
@@ -29,34 +29,24 @@ async function main() {
     throw new Error('DATABASE_URL is not set');
   }
 
-  const fromBlock = BigInt(process.env.INDEX_FROM_BLOCK ?? '0');
-  const provider = new JsonRpcProvider(rpc);
-  const toBlock = await provider.getBlockNumber();
-  const logs = await provider.getLogs({
-    address: tokenAddress,
-    fromBlock,
-    toBlock,
-  });
-
-  const client = new pg.Client({ connectionString: databaseUrl });
-  await client.connect();
+  const pool = new pg.Pool({ connectionString: databaseUrl });
   try {
-    const store = new PgEventStore(client);
-    const result = await indexTokenLogs(
-      store,
-      {
-        tokenAddress,
-        name: TOKEN_NAME,
-        symbol: TOKEN_SYMBOL,
-        decimals: TOKEN_DECIMALS,
-      },
-      logs,
-    );
+    const indexer = createTokenIndexer({
+      chain: new JsonRpcProvider(rpc),
+      tokenAddress,
+      indexFromBlock: Number(process.env.TOKEN_INDEX_FROM_BLOCK ?? '1'),
+      ledger: new PgTokenLedger(pool),
+      syncStore: new PgSyncStateStore(pool),
+    });
+    const result = await indexer.tick();
+    if (result.errors > 0) {
+      throw new Error('token scan failed, see the log above');
+    }
     console.log(
-      `indexed ${result.inserted} new of ${result.decoded} decoded (${result.duplicates} already stored) through block ${toBlock}`,
+      `applied ${result.applied} new events (${result.duplicates} already stored) through block ${result.scannedTo ?? 'none'}`,
     );
   } finally {
-    await client.end();
+    await pool.end();
   }
 }
 

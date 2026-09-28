@@ -125,7 +125,20 @@ CREATE TABLE IF NOT EXISTS kyc_events (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Token balances maintained by the token indexer from Transfer and
+-- AddressFrozen. Addresses are lowercase. A frozen wallet keeps its row even
+-- at zero balance so ops can still see it.
+CREATE TABLE IF NOT EXISTS balances (
+  token_address TEXT NOT NULL,
+  wallet_address TEXT NOT NULL,
+  balance NUMERIC(78, 0) NOT NULL DEFAULT 0,
+  frozen BOOLEAN NOT NULL DEFAULT false,
+  updated_block BIGINT NOT NULL,
+  PRIMARY KEY (token_address, wallet_address)
+);
+
 CREATE INDEX IF NOT EXISTS transactions_block_number_idx ON transactions (block_number);
 CREATE INDEX IF NOT EXISTS exceptions_status_idx ON exceptions (status);
 CREATE INDEX IF NOT EXISTS mint_intents_status_idx ON mint_intents (status);
 CREATE INDEX IF NOT EXISTS kyc_events_applicant_id_idx ON kyc_events (applicant_id);
+CREATE INDEX IF NOT EXISTS balances_holders_idx ON balances (token_address, balance DESC) WHERE balance > 0 OR frozen;

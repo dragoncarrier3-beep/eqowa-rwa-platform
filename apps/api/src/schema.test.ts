@@ -15,9 +15,10 @@ const TABLES = [
   'audit_log',
   'kyc_events',
   'sync_state',
+  'balances',
 ];
 
-test('schema defines the Milestone 2 tables', () => {
+test('schema defines the application tables', () => {
   const sql = loadSchemaSql();
   for (const table of TABLES) {
     assert.match(sql, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}`));

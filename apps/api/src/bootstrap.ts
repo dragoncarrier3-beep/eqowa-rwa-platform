@@ -5,6 +5,9 @@ import { JsonRpcProvider, isAddress } from 'ethers';
 import pg from 'pg';
 
 import { createAssetCatalog, type AssetCatalog } from './assets/catalog.ts';
+import { MemoryTokenLedger, type TokenLedgerStore } from './indexer/ledger.ts';
+import { PgTokenLedger } from './indexer/pgLedger.ts';
+import { createTokenIndexer } from './indexer/tokenWorker.ts';
 import { MemoryIdentityStore, type IdentityStore } from './kyc/identityStore.ts';
 import { PgIdentityStore } from './kyc/pgIdentityStore.ts';
 import { MemoryMintStore, type MintStore } from './mint/mintStore.ts';
@@ -33,6 +36,7 @@ export type Stores = {
   identities: IdentityStore;
   mintStore: MintStore;
   syncStore: SyncStateStore;
+  ledger: TokenLedgerStore;
   pool?: pg.Pool;
 };
 
@@ -43,6 +47,7 @@ export function createStores(env: Env = process.env): Stores {
       identities: new MemoryIdentityStore(),
       mintStore: new MemoryMintStore(),
       syncStore: new MemorySyncStateStore(),
+      ledger: new MemoryTokenLedger(),
     };
   }
   const pool = new pg.Pool({ connectionString: env.DATABASE_URL });
@@ -50,6 +55,7 @@ export function createStores(env: Env = process.env): Stores {
     identities: new PgIdentityStore(pool),
     mintStore: new PgMintStore(pool),
     syncStore: new PgSyncStateStore(pool),
+    ledger: new PgTokenLedger(pool),
     pool,
   };
 }
@@ -163,6 +169,43 @@ export function createAssetCatalogFromEnv(
         },
       ],
       ttlMs: positiveInt(env.ASSET_CACHE_MS, 15_000),
+    }),
+  };
+}
+
+/**
+ * Token indexer from env: keeps `balances` in step with the token. Runs in the
+ * API process unless TOKEN_INDEXER=off. Needs the token deploy block, for the
+ * same reason the settlement worker needs the escrow deploy block.
+ */
+export function createTokenIndexerFromEnv(
+  stores: Stores,
+  env: Env = process.env,
+  provider = rpcProvider(env),
+): { indexer: ReturnType<typeof createTokenIndexer> } | { disabled: string } {
+  if (env.TOKEN_INDEXER === 'off') {
+    return { disabled: 'TOKEN_INDEXER=off' };
+  }
+  if (!env.TOKEN_ADDRESS || !provider) {
+    return { disabled: 'TOKEN_ADDRESS and AMOY_RPC_URL are required' };
+  }
+  if (!isAddress(env.TOKEN_ADDRESS)) {
+    return { disabled: 'TOKEN_ADDRESS is not an address' };
+  }
+  const indexFromBlock = Number(env.TOKEN_INDEX_FROM_BLOCK);
+  if (!env.TOKEN_INDEX_FROM_BLOCK || !Number.isInteger(indexFromBlock) || indexFromBlock <= 0) {
+    return { disabled: 'set TOKEN_INDEX_FROM_BLOCK to the token deploy block' };
+  }
+
+  return {
+    indexer: createTokenIndexer({
+      chain: provider,
+      tokenAddress: env.TOKEN_ADDRESS,
+      indexFromBlock,
+      ledger: stores.ledger,
+      syncStore: stores.syncStore,
+      pollMs: positiveInt(env.TOKEN_INDEX_POLL_MS, 15_000),
+      chunkSize: positiveInt(env.SETTLEMENT_LOG_CHUNK, 2_000),
     }),
   };
 }
