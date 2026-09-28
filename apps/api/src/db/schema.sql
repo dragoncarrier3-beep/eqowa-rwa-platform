@@ -137,6 +137,13 @@ CREATE TABLE IF NOT EXISTS balances (
   PRIMARY KEY (token_address, wallet_address)
 );
 
+-- Single-use SIWE sign-in nonces. Expired rows are pruned when a new one is issued.
+CREATE TABLE IF NOT EXISTS auth_nonces (
+  nonce TEXT PRIMARY KEY,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS transactions_block_number_idx ON transactions (block_number);
 CREATE INDEX IF NOT EXISTS exceptions_status_idx ON exceptions (status);
 CREATE INDEX IF NOT EXISTS mint_intents_status_idx ON mint_intents (status);

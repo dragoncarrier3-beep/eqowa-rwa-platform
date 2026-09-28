@@ -17,6 +17,19 @@ const nextConfig: NextConfig = {
   experimental: {
     externalDir: true,
   },
+  webpack(config) {
+    // wagmi's connector bundle references optional wallet SDKs this app does
+    // not use (only injected and WalletConnect are configured). Resolve them to
+    // empty modules instead of printing "Module not found" on every build.
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@base-org/account': false,
+      '@coinbase/wallet-sdk': false,
+      '@metamask/connect-evm': false,
+      accounts: false,
+    };
+    return config;
+  },
 };
 
 export default nextConfig;

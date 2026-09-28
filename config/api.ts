@@ -8,6 +8,11 @@ export const API_ROUTES = {
   assets: '/assets',
   asset: (tokenAddress: string) => `/assets/${tokenAddress}`,
   adminHolders: '/admin/holders',
+  siweNonce: '/auth/siwe/nonce',
+  siweVerify: '/auth/siwe/verify',
+  authMe: '/auth/me',
+  logout: '/auth/logout',
+  investorMe: '/investor/me',
   mintQuotes: '/mint/quotes',
   relayerDeposit: '/relayer/deposit',
 } as const;
@@ -61,4 +66,21 @@ export type HoldersResponse = {
   indexedBlock: number | null;
   stats: { holderWallets: number; frozenWallets: number; totalSupply: string };
   holders: HolderDto[];
+};
+
+export type NonceResponse = { ok: true; nonce: string; expiresAt: string };
+
+export type SessionDto = { kind: 'investor'; walletAddress: string; expiresAt: string };
+export type SessionResponse = { ok: true; session: SessionDto };
+
+export type KycStatus = 'pending' | 'approved' | 'rejected' | 'blocked_country';
+
+/** What the signed-in investor may see about themselves. */
+export type InvestorMeResponse = {
+  ok: true;
+  walletAddress: string;
+  /** Null until Sumsub has sent a result for this wallet. */
+  kyc: { status: KycStatus; countryCode: number | null; onchainIdAddress: string } | null;
+  /** Null until the token indexer has seen this wallet. Balance in token base units. */
+  holding: { balance: string; frozen: boolean; updatedBlock: number } | null;
 };
