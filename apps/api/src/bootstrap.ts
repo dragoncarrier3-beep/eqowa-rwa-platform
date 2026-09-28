@@ -4,6 +4,9 @@ import dotenv from 'dotenv';
 import { JsonRpcProvider, isAddress } from 'ethers';
 import pg from 'pg';
 
+import { MemoryNonceStore, PgNonceStore, type NonceStore } from './auth/nonceStore.ts';
+import type { AuthConfig } from './auth/routes.ts';
+import { MIN_SECRET_LENGTH } from './auth/session.ts';
 import { createAssetCatalog, type AssetCatalog } from './assets/catalog.ts';
 import { MemoryTokenLedger, type TokenLedgerStore } from './indexer/ledger.ts';
 import { PgTokenLedger } from './indexer/pgLedger.ts';
@@ -37,6 +40,7 @@ export type Stores = {
   mintStore: MintStore;
   syncStore: SyncStateStore;
   ledger: TokenLedgerStore;
+  nonces: NonceStore;
   pool?: pg.Pool;
 };
 
@@ -48,6 +52,7 @@ export function createStores(env: Env = process.env): Stores {
       mintStore: new MemoryMintStore(),
       syncStore: new MemorySyncStateStore(),
       ledger: new MemoryTokenLedger(),
+      nonces: new MemoryNonceStore(),
     };
   }
   const pool = new pg.Pool({ connectionString: env.DATABASE_URL });
@@ -56,6 +61,7 @@ export function createStores(env: Env = process.env): Stores {
     mintStore: new PgMintStore(pool),
     syncStore: new PgSyncStateStore(pool),
     ledger: new PgTokenLedger(pool),
+    nonces: new PgNonceStore(pool),
     pool,
   };
 }
@@ -207,5 +213,29 @@ export function createTokenIndexerFromEnv(
       pollMs: positiveInt(env.TOKEN_INDEX_POLL_MS, 15_000),
       chunkSize: positiveInt(env.SETTLEMENT_LOG_CHUNK, 2_000),
     }),
+  };
+}
+
+/**
+ * Investor sign-in settings, or why sign-in is off. SIWE_DOMAIN is the host
+ * the web app is served on (app.eqowa.com, or localhost:3000 in dev); wallets
+ * show it to the user, and a message naming any other host is refused.
+ */
+export function createAuthConfigFromEnv(env: Env = process.env): { auth: AuthConfig } | { disabled: string } {
+  const secret = env.AUTH_SECRET ?? '';
+  if (secret.length < MIN_SECRET_LENGTH) {
+    return { disabled: `set AUTH_SECRET to at least ${MIN_SECRET_LENGTH} random characters` };
+  }
+  if (!env.SIWE_DOMAIN) {
+    return { disabled: 'set SIWE_DOMAIN to the web app host' };
+  }
+  return {
+    auth: {
+      secret,
+      cookieName: env.AUTH_COOKIE_NAME || 'eqowa_session',
+      secureCookie: env.AUTH_COOKIE_SECURE !== 'false',
+      siweDomain: env.SIWE_DOMAIN,
+      chainId: positiveInt(env.CHAIN_ID, 80002),
+    },
   };
 }

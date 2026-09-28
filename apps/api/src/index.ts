@@ -13,6 +13,8 @@ import {
   serializeKycEvent,
 } from './admin/serialize.ts';
 import type { AssetCatalog } from './assets/catalog.ts';
+import { MemoryNonceStore, type NonceStore } from './auth/nonceStore.ts';
+import { registerAuthRoutes, type AuthConfig } from './auth/routes.ts';
 import type { TokenLedgerStore } from './indexer/ledger.ts';
 import { TOKEN_TRANSFERS_CURSOR } from './indexer/tokenWorker.ts';
 import { applySumsubWebhook, type ApplicantLookup } from './kyc/applyKyc.ts';
@@ -32,6 +34,7 @@ import type { SyncStateStore } from './settlement/syncState.ts';
 import { createRelayerSigner } from './signer/fromEnv.ts';
 import {
   createAssetCatalogFromEnv,
+  createAuthConfigFromEnv,
   createMintExecutor,
   createSettlementWorkerFromEnv,
   createStores,
@@ -78,6 +81,9 @@ export type AppDeps = {
   mint?: MintExecutor;
   adminKey?: string;
   assets?: AssetCatalog;
+  /** Investor sign-in. Unset answers 503 on the auth routes. */
+  auth?: AuthConfig;
+  nonces?: NonceStore;
   /** Token read model and the cursor store it advances. */
   ledger?: TokenLedgerStore;
   syncStore?: SyncStateStore;
@@ -102,6 +108,15 @@ export function buildApp(deps: AppDeps = {}) {
   const ledger = deps.ledger;
   const syncStore = deps.syncStore;
   const tokenAddress = deps.tokenAddress ?? process.env.TOKEN_ADDRESS ?? '';
+
+  registerAuthRoutes(app, {
+    auth: deps.auth,
+    nonces: deps.nonces ?? new MemoryNonceStore(),
+    identities: store,
+    ledger,
+    tokenAddress,
+    now,
+  });
 
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (request, body, done) => {
     const raw = typeof body === 'string' ? body : Buffer.from(body as ArrayBuffer).toString('utf8');
@@ -494,7 +509,14 @@ async function main() {
     console.warn(`Asset listing off: ${assets.disabled}`);
   }
 
+  const auth = createAuthConfigFromEnv();
+  if ('disabled' in auth) {
+    console.warn(`Investor sign-in off: ${auth.disabled}`);
+  }
+
   const app = buildApp({
+    auth: 'auth' in auth ? auth.auth : undefined,
+    nonces: stores.nonces,
     assets: 'catalog' in assets ? assets.catalog : undefined,
     ledger: stores.ledger,
     syncStore: stores.syncStore,

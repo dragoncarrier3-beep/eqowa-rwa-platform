@@ -16,6 +16,7 @@ const TABLES = [
   'kyc_events',
   'sync_state',
   'balances',
+  'auth_nonces',
 ];
 
 test('schema defines the application tables', () => {
