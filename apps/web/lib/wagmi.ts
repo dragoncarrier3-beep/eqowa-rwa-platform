@@ -3,6 +3,8 @@ import type { Chain } from 'viem';
 import { hardhat, polygon, polygonAmoy } from 'wagmi/chains';
 import { injected, walletConnect } from 'wagmi/connectors';
 
+import { APP_CHAIN_ID } from '@/lib/chain';
+
 const SUPPORTED_CHAINS = [hardhat, polygonAmoy, polygon] as const;
 
 /** The one chain this deployment runs on, from NEXT_PUBLIC_CHAIN_ID (31337, 80002 or 137). */
@@ -10,7 +12,7 @@ export function appChainFor(chainId: number): Chain {
   return SUPPORTED_CHAINS.find((chain) => chain.id === chainId) ?? polygonAmoy;
 }
 
-export const APP_CHAIN: Chain = appChainFor(Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? 80002));
+export const APP_CHAIN: Chain = appChainFor(APP_CHAIN_ID);
 
 /**
  * MetaMask and other browser wallets through `injected`, phones through

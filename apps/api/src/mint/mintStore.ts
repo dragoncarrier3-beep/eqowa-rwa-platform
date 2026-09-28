@@ -33,6 +33,8 @@ export interface MintStore {
   transitionQuoteStatus(intentId: string, from: MintQuoteStatus[], to: MintQuoteStatus): Promise<boolean>;
   setMintTxHash(intentId: string, txHash: string): Promise<void>;
   listQuotes(filter: { statuses: MintQuoteStatus[]; limit?: number }): Promise<StoredMintQuote[]>;
+  /** One investor's quotes, newest first. */
+  listQuotesByWallet(wallet: string, limit?: number): Promise<StoredMintQuote[]>;
   addException(row: MintException): Promise<ExceptionRecord>;
   getException(id: string): Promise<ExceptionRecord | undefined>;
   listExceptions(filter?: { intentId?: string; status?: ExceptionStatus }): Promise<ExceptionRecord[]>;
@@ -110,6 +112,15 @@ export class MemoryMintStore implements MintStore {
   async listQuotes(filter: { statuses: MintQuoteStatus[]; limit?: number }) {
     const rows = [...this.quotes.values()].filter((quote) => filter.statuses.includes(quote.status));
     return rows.slice(0, filter.limit ?? rows.length).map((quote) => ({ ...quote }));
+  }
+
+  async listQuotesByWallet(wallet: string, limit = 50) {
+    const key = wallet.toLowerCase();
+    return [...this.quotes.values()]
+      .filter((quote) => quote.wallet.toLowerCase() === key)
+      .reverse()
+      .slice(0, limit)
+      .map((quote) => ({ ...quote }));
   }
 
   async addException(row: MintException) {

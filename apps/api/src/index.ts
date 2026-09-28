@@ -12,10 +12,11 @@ import {
   serializeIdentity,
   serializeKycEvent,
 } from './admin/serialize.ts';
-import type { AssetCatalog } from './assets/catalog.ts';
+import type { AssetCatalog, ChainReader } from './assets/catalog.ts';
 import { MemoryNonceStore, type NonceStore } from './auth/nonceStore.ts';
 import { registerAuthRoutes, type AuthConfig } from './auth/routes.ts';
 import type { TokenLedgerStore } from './indexer/ledger.ts';
+import { registerInvestorRoutes } from './investor/routes.ts';
 import { TOKEN_TRANSFERS_CURSOR } from './indexer/tokenWorker.ts';
 import { applySumsubWebhook, type ApplicantLookup } from './kyc/applyKyc.ts';
 import { MemoryIdentityStore, type IdentityRecord, type IdentityStore } from './kyc/identityStore.ts';
@@ -84,6 +85,10 @@ export type AppDeps = {
   /** Investor sign-in. Unset answers 503 on the auth routes. */
   auth?: AuthConfig;
   nonces?: NonceStore;
+  /** Live reads for the investor portfolio and quote confirmations. */
+  chain?: ChainReader;
+  chainId?: number;
+  lockupModule?: string;
   /** Token read model and the cursor store it advances. */
   ledger?: TokenLedgerStore;
   syncStore?: SyncStateStore;
@@ -115,6 +120,16 @@ export function buildApp(deps: AppDeps = {}) {
     identities: store,
     ledger,
     tokenAddress,
+    now,
+  });
+
+  registerInvestorRoutes(app, {
+    auth: deps.auth,
+    mintStore,
+    chain: deps.chain,
+    chainId: deps.chainId ?? Number(process.env.CHAIN_ID ?? 80002),
+    tokenAddress,
+    lockupModule: deps.lockupModule,
     now,
   });
 
@@ -517,6 +532,10 @@ async function main() {
   const app = buildApp({
     auth: 'auth' in auth ? auth.auth : undefined,
     nonces: stores.nonces,
+    chain: rpcProvider(),
+    lockupModule: isAddress(process.env.TIME_LOCKUP_MODULE_ADDRESS ?? '')
+      ? process.env.TIME_LOCKUP_MODULE_ADDRESS
+      : undefined,
     assets: 'catalog' in assets ? assets.catalog : undefined,
     ledger: stores.ledger,
     syncStore: stores.syncStore,

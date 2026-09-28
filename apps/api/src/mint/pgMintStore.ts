@@ -228,6 +228,18 @@ export class PgMintStore implements MintStore {
     return result.rows.map(toQuote);
   }
 
+  async listQuotesByWallet(wallet: string, limit = 50) {
+    const result = await this.client.query<QuoteRow>(
+      `SELECT ${QUOTE_COLUMNS}
+       FROM mint_intents
+       WHERE lower(wallet_address) = lower($1)
+       ORDER BY created_at DESC
+       LIMIT $2`,
+      [wallet, limit],
+    );
+    return result.rows.map(toQuote);
+  }
+
   async addException(row: MintException) {
     const result = await this.client.query<ExceptionRow>(
       `INSERT INTO exceptions (kind, intent_id, details)

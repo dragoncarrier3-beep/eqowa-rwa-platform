@@ -1,3 +1,5 @@
+import type { MintQuoteStatus } from './mint';
+
 /**
  * HTTP contract between the API and the web app: route paths and the JSON
  * shapes they return. Amounts are base-unit strings because JSON has no bigint.
@@ -13,6 +15,9 @@ export const API_ROUTES = {
   authMe: '/auth/me',
   logout: '/auth/logout',
   investorMe: '/investor/me',
+  investorPortfolio: '/investor/portfolio',
+  investorQuotes: '/investor/quotes',
+  investorQuote: (intentId: string) => `/investor/quotes/${intentId}`,
   mintQuotes: '/mint/quotes',
   relayerDeposit: '/relayer/deposit',
 } as const;
@@ -84,3 +89,57 @@ export type InvestorMeResponse = {
   /** Null until the token indexer has seen this wallet. Balance in token base units. */
   holding: { balance: string; frozen: boolean; updatedBlock: number } | null;
 };
+
+/** One lock-up tranche: `amount` token base units, unlocking at `releaseAt`. */
+export type LockTrancheDto = { amount: string; releaseAt: string };
+
+/**
+ * The signed-in investor's holding, read live from the chain at `blockNumber`.
+ * Lock-up figures are per identity (ONCHAINID) and so cover all its wallets.
+ */
+export type PortfolioResponse = {
+  ok: true;
+  walletAddress: string;
+  tokenAddress: string;
+  chainId: number;
+  blockNumber: number;
+  readAt: string;
+  /** Token base units. */
+  balance: string;
+  /** Whole wallet frozen by the agent. */
+  frozen: boolean;
+  /** Part of the balance frozen by the agent. */
+  frozenTokens: string;
+  /** Null when the wallet has no identity in the registry yet. */
+  identityAddress: string | null;
+  /** Null without an identity or when the lock-up module is not configured. */
+  lockup: {
+    locked: string;
+    spendable: string;
+    lockupDays: number;
+    tranches: LockTrancheDto[];
+  } | null;
+};
+
+export type InvestorQuoteDto = {
+  intentId: string;
+  status: MintQuoteStatus;
+  /** USDT base units. */
+  usdtAmount: string;
+  fundsAmount: string;
+  feeAmount: string;
+  /** USDT the deposit carried beyond whole shares. Never minted. */
+  remainderAmount: string;
+  shares: string;
+  /** Token base units. */
+  shareAmount: string;
+  quoteExpiresAt: string;
+  rejectReason: string | null;
+  deposit: { txHash: string; blockNumber: number; amount: string } | null;
+  /** Null before a deposit, or when the chain head is unknown. */
+  confirmations: { current: number; required: number } | null;
+  mintTxHash: string | null;
+};
+
+export type InvestorQuotesResponse = { ok: true; currentBlock: number | null; quotes: InvestorQuoteDto[] };
+export type InvestorQuoteResponse = { ok: true; currentBlock: number | null; quote: InvestorQuoteDto };
