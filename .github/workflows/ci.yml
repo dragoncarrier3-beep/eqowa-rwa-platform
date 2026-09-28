@@ -50,3 +50,33 @@ jobs:
         # Deploys the suite and escrow with the production scripts onto a
         # Hardhat node and runs the whole payment-to-mint lifecycle.
         run: npm run simulate:local
+
+  web:
+    name: Web app
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install web dependencies
+        run: npm --prefix apps/web ci
+
+      - name: Lint
+        run: npm run web:lint
+
+      - name: Typecheck
+        run: npm run web:typecheck
+
+      - name: Run web tests
+        run: npm run web:test
+
+      - name: Production build
+        run: npm run web:build

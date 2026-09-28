@@ -3,6 +3,8 @@ artifacts/
 cache/
 typechain-types/
 coverage/
+.next/
+next-env.d.ts
 
 # Vendored upstream sources are kept byte-identical to T-REX v4.1.6.
 contracts/trex/

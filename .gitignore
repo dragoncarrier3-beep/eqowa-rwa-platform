@@ -3,6 +3,8 @@ artifacts/
 cache/
 typechain-types/
 coverage/
+.next/
+*.tsbuildinfo
 coverage.json
 dist/
 

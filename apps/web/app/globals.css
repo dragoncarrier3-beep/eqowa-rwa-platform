@@ -1,0 +1,66 @@
+@import 'tailwindcss';
+
+/*
+ * EQOWA design tokens. Dark "mission control" palette built from the logo:
+ * EQOWA blue #1F6FB8 for primary actions, navy #1C2B45 for surfaces. Cyan is
+ * reserved for live chain data, amber for holds and warnings, red for blocks.
+ * Institutional and restrained: readable text first, glow only on live values.
+ */
+@theme {
+  --color-background: #070b14;
+  --color-surface: #0e1626;
+  --color-surface-2: #14203a;
+  --color-surface-3: #1c2b45;
+  --color-border: #223558;
+  --color-border-strong: #2f4a78;
+
+  --color-text: #e6edf7;
+  --color-text-muted: #94a6c4;
+  --color-text-faint: #5f7398;
+
+  --color-primary: #1f6fb8;
+  --color-primary-hover: #2a84d6;
+  --color-primary-soft: #14355e;
+
+  --color-live: #35c8f0;
+  --color-live-soft: #0c3a4c;
+
+  --color-success: #2fbf71;
+  --color-success-soft: #0f3a29;
+
+  --color-warning: #f2a93b;
+  --color-warning-soft: #4a3312;
+
+  --color-danger: #e5484d;
+  --color-danger-soft: #4b1a1f;
+
+  --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Mono', 'Consolas', ui-monospace, monospace;
+
+  --radius-panel: 0.75rem;
+  --shadow-panel: 0 1px 0 0 rgb(255 255 255 / 0.03) inset, 0 12px 32px -20px rgb(0 0 0 / 0.8);
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  /* Subtle grid, the "screen" feel without competing with the content. */
+  background-image:
+    linear-gradient(rgb(31 111 184 / 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(31 111 184 / 0.05) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.live-glow {
+  text-shadow: 0 0 12px rgb(53 200 240 / 0.45);
+}
