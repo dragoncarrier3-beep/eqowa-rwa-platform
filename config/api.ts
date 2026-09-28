@@ -1,4 +1,4 @@
-import type { MintQuoteStatus } from './mint';
+import type { MintQuoteStatus } from './mintStatus';
 
 /**
  * HTTP contract between the API and the web app: route paths and the JSON

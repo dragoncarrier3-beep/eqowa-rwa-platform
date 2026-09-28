@@ -1,6 +1,7 @@
 import { keccak256, randomBytes } from 'ethers';
 
 import { ONE_USDT, SHARE_PRICE_USDT, shareBaseUnits, splitUsdtDeposit } from './eqowa';
+import type { MintQuoteStatus } from './mintStatus';
 
 /** A quoted intent dies if no matching deposit arrives within this window. */
 export const QUOTE_TTL_SECONDS = 15 * 60;
@@ -20,24 +21,7 @@ export function requiresSafeApproval(depositAmount: bigint): boolean {
   return depositAmount >= SAFE_APPROVAL_THRESHOLD_USDT;
 }
 
-/**
- * `minting` means the agent mint was claimed for this intent and possibly
- * broadcast. Only one caller can move an intent into it, so a retry or a
- * second worker cannot send the same mint twice.
- *
- * `awaiting_safe_approval` holds a large mint until the Safe owners sign off;
- * `safe_approved` releases it to the normal mint path.
- */
-export type MintQuoteStatus =
-  | 'quoted'
-  | 'deposited'
-  | 'awaiting_confirmations'
-  | 'awaiting_safe_approval'
-  | 'safe_approved'
-  | 'minting'
-  | 'minted'
-  | 'expired'
-  | 'rejected';
+export type { MintQuoteStatus } from './mintStatus';
 
 export type MintRejectReason =
   'quote_expired' | 'amount_mismatch' | 'kyc_not_approved' | 'below_share_price' | 'invalid_amount' | 'invalid_wallet';

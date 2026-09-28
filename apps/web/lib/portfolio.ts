@@ -1,5 +1,5 @@
 import type { ApiError, InvestorQuotesResponse, PortfolioResponse } from '@config/api';
-import type { MintQuoteStatus } from '@config/mint';
+import type { MintQuoteStatus } from '@config/mintStatus';
 
 import { proxied } from '@/lib/siwe';
 
