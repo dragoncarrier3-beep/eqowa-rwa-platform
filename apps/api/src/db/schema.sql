@@ -149,3 +149,4 @@ CREATE INDEX IF NOT EXISTS exceptions_status_idx ON exceptions (status);
 CREATE INDEX IF NOT EXISTS mint_intents_status_idx ON mint_intents (status);
 CREATE INDEX IF NOT EXISTS kyc_events_applicant_id_idx ON kyc_events (applicant_id);
 CREATE INDEX IF NOT EXISTS balances_holders_idx ON balances (token_address, balance DESC) WHERE balance > 0 OR frozen;
+CREATE INDEX IF NOT EXISTS mint_intents_wallet_idx ON mint_intents (lower(wallet_address), created_at DESC);

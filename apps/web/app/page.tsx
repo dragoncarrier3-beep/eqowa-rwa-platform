@@ -81,11 +81,11 @@ export default async function HomePage() {
             <CardDescription>Sign in with your wallet, complete KYC, buy shares without paying gas.</CardDescription>
           </CardHeader>
           <CardContent className="text-sm text-text-muted">
-            Coming in the next slices:{' '}
+            Open your{' '}
             <Link href="/portfolio" className="text-[#8fc1ef] hover:underline">
               portfolio
             </Link>
-            , checkout, KYC and documents.
+            . Checkout, KYC and documents follow in the next slices.
           </CardContent>
         </Card>
         <Card>

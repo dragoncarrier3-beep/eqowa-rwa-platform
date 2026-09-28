@@ -20,6 +20,25 @@ export const TOKEN_VIEW_ABI = [
   'function compliance() view returns (address)',
 ];
 
+/** Per-wallet token views behind the investor portfolio. */
+export const TOKEN_HOLDER_VIEW_ABI = [
+  'function balanceOf(address account) view returns (uint256)',
+  'function isFrozen(address _userAddress) view returns (bool)',
+  'function getFrozenTokens(address _userAddress) view returns (uint256)',
+  'function identityRegistry() view returns (address)',
+  'function compliance() view returns (address)',
+];
+
+export const IDENTITY_REGISTRY_VIEW_ABI = ['function identity(address _userAddress) view returns (address)'];
+
+/** Lock-up is tracked per ONCHAINID, so it covers every wallet of the identity. */
+export const TIME_LOCKUP_ABI = [
+  'function getLockupDuration(address _compliance) view returns (uint256)',
+  'function getLockedAmount(address _compliance, address _identity) view returns (uint256)',
+  'function getSpendableAmount(address _compliance, address _identity) view returns (uint256)',
+  'function getLockedTranches(address _compliance, address _identity) view returns (uint256[] amounts, uint256[] releaseTimes)',
+];
+
 export const IDENTITY_REGISTRY_ABI = [
   'function registerIdentity(address _userAddress, address _identity, uint16 _country)',
   'function isVerified(address _userAddress) view returns (bool)',
