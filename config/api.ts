@@ -7,6 +7,7 @@ export const API_ROUTES = {
   health: '/health',
   assets: '/assets',
   asset: (tokenAddress: string) => `/assets/${tokenAddress}`,
+  adminHolders: '/admin/holders',
   mintQuotes: '/mint/quotes',
   relayerDeposit: '/relayer/deposit',
 } as const;
@@ -40,3 +41,24 @@ export type AssetSummaryDto = {
 
 export type AssetsResponse = { ok: true; assets: AssetSummaryDto[] };
 export type AssetResponse = { ok: true; asset: AssetSummaryDto };
+
+/** One wallet in the indexed ledger. Balance in token base units. */
+export type HolderDto = {
+  walletAddress: string;
+  balance: string;
+  frozen: boolean;
+  updatedBlock: number;
+};
+
+/**
+ * Indexed holders, admin only. `indexedBlock` is the last block the token
+ * indexer has fully applied (it runs 12 blocks behind head); null before the
+ * first scan.
+ */
+export type HoldersResponse = {
+  ok: true;
+  tokenAddress: string;
+  indexedBlock: number | null;
+  stats: { holderWallets: number; frozenWallets: number; totalSupply: string };
+  holders: HolderDto[];
+};

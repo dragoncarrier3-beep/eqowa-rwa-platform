@@ -13,6 +13,8 @@ import {
   serializeKycEvent,
 } from './admin/serialize.ts';
 import type { AssetCatalog } from './assets/catalog.ts';
+import type { TokenLedgerStore } from './indexer/ledger.ts';
+import { TOKEN_TRANSFERS_CURSOR } from './indexer/tokenWorker.ts';
 import { applySumsubWebhook, type ApplicantLookup } from './kyc/applyKyc.ts';
 import { MemoryIdentityStore, type IdentityRecord, type IdentityStore } from './kyc/identityStore.ts';
 import { fetchSumsubApplicant } from './kyc/sumsubClient.ts';
@@ -26,12 +28,14 @@ import {
   type MintExecutor,
 } from './mint/pipeline.ts';
 import { parseForwardRequest, relayEscrowDeposit } from './relayer/relayDeposit.ts';
+import type { SyncStateStore } from './settlement/syncState.ts';
 import { createRelayerSigner } from './signer/fromEnv.ts';
 import {
   createAssetCatalogFromEnv,
   createMintExecutor,
   createSettlementWorkerFromEnv,
   createStores,
+  createTokenIndexerFromEnv,
   loadEnv,
   rpcProvider,
 } from './bootstrap.ts';
@@ -74,6 +78,10 @@ export type AppDeps = {
   mint?: MintExecutor;
   adminKey?: string;
   assets?: AssetCatalog;
+  /** Token read model and the cursor store it advances. */
+  ledger?: TokenLedgerStore;
+  syncStore?: SyncStateStore;
+  tokenAddress?: string;
   relayDeposit?: (input: {
     request: NonNullable<ReturnType<typeof parseForwardRequest>>;
     signature: string;
@@ -91,6 +99,9 @@ export function buildApp(deps: AppDeps = {}) {
   const relayDeposit = deps.relayDeposit;
   const adminKey = deps.adminKey ?? process.env.ADMIN_API_KEY ?? '';
   const assets = deps.assets;
+  const ledger = deps.ledger;
+  const syncStore = deps.syncStore;
+  const tokenAddress = deps.tokenAddress ?? process.env.TOKEN_ADDRESS ?? '';
 
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (request, body, done) => {
     const raw = typeof body === 'string' ? body : Buffer.from(body as ArrayBuffer).toString('utf8');
@@ -418,6 +429,31 @@ export function buildApp(deps: AppDeps = {}) {
     return { ok: true, audit: rows.map(serializeAudit) };
   });
 
+  app.get('/admin/holders', async (request, reply) => {
+    const denied = adminUnauthorized(request, reply, adminKey);
+    if (denied) {
+      return denied;
+    }
+    if (!ledger || !syncStore || !isAddress(tokenAddress)) {
+      return reply.code(503).send({ ok: false, reason: 'holders_unavailable' });
+    }
+    const query = request.query as Record<string, unknown>;
+    const requested = typeof query.limit === 'string' ? Number(query.limit) : 500;
+    const limit = Number.isInteger(requested) && requested > 0 ? Math.min(requested, 1_000) : 500;
+    const [stats, holders, indexedBlock] = await Promise.all([
+      ledger.stats(tokenAddress),
+      ledger.listHolders(tokenAddress, { limit }),
+      syncStore.getCursor(TOKEN_TRANSFERS_CURSOR),
+    ]);
+    return {
+      ok: true,
+      tokenAddress,
+      indexedBlock: indexedBlock ?? null,
+      stats: { ...stats, totalSupply: stats.totalSupply.toString() },
+      holders: holders.map((row) => ({ ...row, balance: row.balance.toString() })),
+    };
+  });
+
   return app;
 }
 
@@ -460,6 +496,8 @@ async function main() {
 
   const app = buildApp({
     assets: 'catalog' in assets ? assets.catalog : undefined,
+    ledger: stores.ledger,
+    syncStore: stores.syncStore,
     identityStore: stores.identities,
     mintStore: stores.mintStore,
     lookupApplicant: (applicantId) => fetchSumsubApplicant(applicantId),
@@ -478,9 +516,19 @@ async function main() {
     app.log.warn(`Settlement worker off: ${settlement.disabled}`);
   }
 
+  const tokenIndex = createTokenIndexerFromEnv(stores);
+  if ('indexer' in tokenIndex) {
+    tokenIndex.indexer.start();
+  } else {
+    app.log.warn(`Token indexer off: ${tokenIndex.disabled}`);
+  }
+
   const shutdown = async () => {
     if ('worker' in settlement) {
       await settlement.worker.stop();
+    }
+    if ('indexer' in tokenIndex) {
+      await tokenIndex.indexer.stop();
     }
     await app.close();
     await stores.pool?.end();
