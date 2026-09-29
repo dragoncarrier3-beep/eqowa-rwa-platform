@@ -19,6 +19,7 @@ export const API_ROUTES = {
   investorQuotes: '/investor/quotes',
   investorQuote: (intentId: string) => `/investor/quotes/${intentId}`,
   investorCheckout: '/investor/checkout',
+  investorKycToken: '/investor/kyc/token',
   mintQuotes: '/mint/quotes',
   relayerApprove: '/relayer/approve',
   relayerDeposit: '/relayer/deposit',
@@ -181,3 +182,6 @@ export type CheckoutResponse = {
   usdtMetaNonce: string;
   forwarderNonce: string;
 };
+
+/** Short-lived Sumsub WebSDK token for the signed-in wallet. */
+export type KycTokenResponse = { ok: true; token: string; levelName: string };

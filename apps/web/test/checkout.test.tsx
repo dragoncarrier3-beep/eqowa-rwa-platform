@@ -140,7 +140,9 @@ describe('CheckoutView', () => {
     });
     renderView();
 
-    expect(await screen.findByText('Complete identity verification (KYC) before buying.')).toBeTruthy();
+    expect(
+      await screen.findByText('Complete identity verification (KYC) on the Verify page before buying.'),
+    ).toBeTruthy();
     expect(screen.getByText(/does not hold enough USDT/)).toBeTruthy();
     expect(screen.getByRole('button', { name: /Buy 10 shares/ })).toBeDisabled();
   });

@@ -112,7 +112,7 @@ export async function runPurchase(input: {
 
 export const BLOCKER_TEXT: Record<CheckoutBlocker, string> = {
   below_share_price: 'The amount is below the price of one share (5 USDT).',
-  kyc_not_approved: 'Complete identity verification (KYC) before buying.',
+  kyc_not_approved: 'Complete identity verification (KYC) on the Verify page before buying.',
   identity_not_verified: 'Your verified identity is not registered on-chain yet. This follows KYC approval.',
   not_compliant:
     'This purchase breaks a rule of the offering: country, the 150,000 share limit, the holder limit or the daily limit.',

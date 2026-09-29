@@ -21,6 +21,8 @@ export type InvestorRouteDeps = {
   identities: IdentityStore;
   /** Unset makes the checkout pre-flight 503. */
   checkoutContracts?: CheckoutContracts;
+  /** Sumsub WebSDK token for a wallet; null when Sumsub keys are not set. */
+  createKycToken?: (userId: string) => Promise<{ token: string; levelName: string } | null>;
   now: () => Date;
 };
 
@@ -109,6 +111,32 @@ export function registerInvestorRoutes(app: FastifyInstance, deps: InvestorRoute
     } catch (error) {
       request.log.error({ err: error }, 'checkout read failed');
       return reply.code(503).send({ ok: false, reason: 'chain_unavailable' });
+    }
+  });
+
+  app.post('/investor/kyc/token', async (request, reply) => {
+    const session = requireInvestor(request, reply);
+    if (!session) {
+      return reply;
+    }
+    const identity = await deps.identities.getByWallet(session.walletAddress);
+    if (identity?.kycStatus === 'approved') {
+      return reply.code(409).send({ ok: false, reason: 'kyc_already_approved' });
+    }
+    if (!deps.createKycToken) {
+      return reply.code(503).send({ ok: false, reason: 'kyc_unavailable' });
+    }
+    reply.header('cache-control', 'no-store');
+    try {
+      // Bound to the session wallet only: the webhook maps the review back by this id.
+      const issued = await deps.createKycToken(session.walletAddress);
+      if (!issued) {
+        return reply.code(503).send({ ok: false, reason: 'kyc_unavailable' });
+      }
+      return { ok: true, token: issued.token, levelName: issued.levelName };
+    } catch (error) {
+      request.log.error({ err: error }, 'sumsub token request failed');
+      return reply.code(502).send({ ok: false, reason: 'kyc_provider_error' });
     }
   });
 

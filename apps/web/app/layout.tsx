@@ -15,6 +15,7 @@ export const metadata: Metadata = {
 
 const NAV = [
   { href: '/', label: 'Overview' },
+  { href: '/kyc', label: 'Verify' },
   { href: '/buy', label: 'Buy' },
   { href: '/portfolio', label: 'Portfolio' },
   { href: '/admin', label: 'Admin' },
