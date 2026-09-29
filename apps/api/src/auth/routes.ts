@@ -2,10 +2,12 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { generateSiweNonce } from 'viem/siwe';
 
 import type { InvestorMeResponse, SessionDto } from '../../../../config/api.ts';
+import { TERMS_VERSION, consentStatement } from '../../../../config/terms.ts';
 
 import type { TokenLedgerStore } from '../indexer/ledger.ts';
 import type { IdentityRecord, IdentityStore } from '../kyc/identityStore.ts';
 
+import type { ConsentStore } from './consentStore.ts';
 import { NONCE_TTL_SECONDS, type NonceStore } from './nonceStore.ts';
 import {
   INVESTOR_SESSION_SECONDS,
@@ -30,6 +32,7 @@ export type AuthRouteDeps = {
   /** Undefined turns every auth route into 503 auth_unconfigured. */
   auth?: AuthConfig;
   nonces: NonceStore;
+  consents: ConsentStore;
   identities: IdentityStore;
   ledger?: TokenLedgerStore;
   tokenAddress: string;
@@ -97,6 +100,18 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps) {
       return reply.code(401).send({ ok: false, reason: result.error });
     }
 
+    // The consent sentence is the signed statement, so the stored message and
+    // signature prove this wallet accepted this version of the terms.
+    if (result.statement === consentStatement(TERMS_VERSION)) {
+      await deps.consents.record({
+        walletAddress: result.walletAddress,
+        termsVersion: TERMS_VERSION,
+        message,
+        signature,
+        acceptedAt: now,
+      });
+    }
+
     const session: Session = {
       kind: 'investor',
       walletAddress: result.walletAddress,
@@ -144,13 +159,16 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps) {
       return reply.code(401).send({ ok: false, reason: 'unauthenticated' });
     }
 
-    const [identity, holding] = await Promise.all([
+    const [identity, holding, termsAccepted] = await Promise.all([
       deps.identities.getByWallet(session.walletAddress),
       deps.ledger && deps.tokenAddress ? deps.ledger.getBalance(deps.tokenAddress, session.walletAddress) : undefined,
+      deps.consents.hasAccepted(session.walletAddress, TERMS_VERSION),
     ]);
     const response: InvestorMeResponse = {
       ok: true,
       walletAddress: session.walletAddress,
+      termsAccepted,
+      termsVersion: TERMS_VERSION,
       kyc: identity
         ? {
             status: identity.kycStatus,

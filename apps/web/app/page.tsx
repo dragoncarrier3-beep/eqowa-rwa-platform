@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import { LOCKUP_DURATION_SECONDS, MAX_HOLDER_COUNT, SHARE_PRICE_USDT, TOKEN_NAME, TOKEN_SYMBOL } from '@config/eqowa';
+import { RISK_NOTICE } from '@config/terms';
 
 import { StatTile } from '@/components/stat-tile';
 import { Badge } from '@/components/ui/badge';
@@ -27,6 +28,17 @@ export default async function HomePage() {
           registry and the compliance rules, so the rules cannot be bypassed.
         </p>
       </section>
+
+      <aside
+        aria-label="Risk notice"
+        className="rounded-panel border border-warning/40 bg-warning-soft px-4 py-3 text-sm text-warning"
+      >
+        <strong className="font-semibold">Risk notice.</strong> {RISK_NOTICE}{' '}
+        <Link href="/legal/risk" className="underline">
+          Read the risk disclaimer
+        </Link>
+        .
+      </aside>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <StatTile label="Symbol" value={TOKEN_SYMBOL} />

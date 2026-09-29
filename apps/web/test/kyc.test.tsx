@@ -1,4 +1,5 @@
 import type { InvestorMeResponse } from '@config/api';
+import { TERMS_VERSION } from '@config/terms';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
@@ -40,7 +41,7 @@ vi.mock('@sumsub/websdk', () => {
 const WALLET = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
 
 function me(kyc: InvestorMeResponse['kyc']): InvestorMeResponse {
-  return { ok: true, walletAddress: WALLET, kyc, holding: null };
+  return { ok: true, walletAddress: WALLET, termsAccepted: true, termsVersion: TERMS_VERSION, kyc, holding: null };
 }
 
 function stubApi(routes: Record<string, { status?: number; body: unknown }>) {

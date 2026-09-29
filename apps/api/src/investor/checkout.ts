@@ -29,6 +29,8 @@ export async function readCheckout(input: {
   identities: IdentityStore;
   walletAddress: string;
   usdtAmount: bigint;
+  /** Current terms accepted; purchases stay blocked until they are. */
+  termsAccepted: boolean;
 }): Promise<CheckoutResponse> {
   const wallet = getAddress(input.walletAddress);
   const split = splitUsdtDeposit(input.usdtAmount);
@@ -71,6 +73,9 @@ export async function readCheckout(input: {
   ]);
 
   const blockers: CheckoutBlocker[] = [];
+  if (!input.termsAccepted) {
+    blockers.push('terms_not_accepted');
+  }
   if (split.shares === 0n) {
     blockers.push('below_share_price');
   }

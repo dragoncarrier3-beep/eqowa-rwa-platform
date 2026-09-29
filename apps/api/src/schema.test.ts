@@ -17,6 +17,7 @@ const TABLES = [
   'sync_state',
   'balances',
   'auth_nonces',
+  'investor_consents',
 ];
 
 test('schema defines the application tables', () => {

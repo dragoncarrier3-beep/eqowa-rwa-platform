@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import test from 'node:test';
 
+import { TERMS_VERSION } from '../../../../config/terms.ts';
+
+import { MemoryConsentStore } from '../auth/consentStore.ts';
 import type { AuthConfig } from '../auth/routes.ts';
 import { signSession } from '../auth/session.ts';
 import { buildApp } from '../index.ts';
@@ -68,6 +71,19 @@ test('createSumsubAccessToken uses the configured level, is off without keys and
   await assert.rejects(createSumsubAccessToken({ userId: WALLET }, ENV, { fetch: empty }), /no access token/);
 });
 
+/** A consent store in which WALLET has accepted the current terms. */
+async function acceptedConsents(wallet = WALLET) {
+  const consents = new MemoryConsentStore();
+  await consents.record({
+    walletAddress: wallet,
+    termsVersion: TERMS_VERSION,
+    message: 'm',
+    signature: '0x',
+    acceptedAt: NOW,
+  });
+  return consents;
+}
+
 function cookie() {
   const token = signSession(
     { kind: 'investor', walletAddress: WALLET, issuedAt: NOW, expiresAt: new Date(NOW.getTime() + 60_000) },
@@ -80,11 +96,13 @@ async function requestToken(options: {
   identities?: MemoryIdentityStore;
   createKycToken?: (userId: string) => Promise<{ token: string; levelName: string } | null>;
   signedIn?: boolean;
+  consents?: MemoryConsentStore;
 }) {
   const app = buildApp({
     auth: AUTH,
     identityStore: options.identities ?? new MemoryIdentityStore(),
     createKycToken: options.createKycToken,
+    consents: options.consents ?? (await acceptedConsents()),
     now: () => NOW,
   });
   const response = await app.inject({
@@ -137,4 +155,13 @@ test('refuses an already approved investor, and maps missing keys and provider f
   assert.equal(down.json().reason, 'kyc_provider_error');
 
   assert.equal((await requestToken({ signedIn: false })).statusCode, 401);
+});
+
+test('refuses to start KYC before the terms are accepted', async () => {
+  const response = await requestToken({
+    consents: new MemoryConsentStore(),
+    createKycToken: async () => ({ token: 'x', levelName: 'id-and-liveness' }),
+  });
+  assert.equal(response.statusCode, 403);
+  assert.equal(response.json().reason, 'terms_not_accepted');
 });

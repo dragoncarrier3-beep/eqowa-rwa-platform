@@ -32,6 +32,7 @@ export async function requestKycToken(): Promise<string> {
 
 const REASON_TEXT: Record<string, string> = {
   kyc_already_approved: 'Your identity is already verified.',
+  terms_not_accepted: 'Accept the current terms first: sign out, then sign in again and agree to the terms.',
   kyc_unavailable: 'Identity verification is not available right now. Please try again later.',
   kyc_provider_error: 'The verification service did not respond. Please try again in a moment.',
   unauthenticated: 'Your session ended. Sign in again with your wallet.',
