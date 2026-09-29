@@ -53,8 +53,8 @@ describe('Amoy deploy preflight', () => {
   });
 
   it('prices the settlement deploy under 0.1 POL', () => {
-    // Measured at 2,254,598 gas locally.
-    expect(SETTLEMENT_DEPLOY_GAS_ESTIMATE).to.equal(2_400_000n);
+    // Measured at 2,648,771 gas locally, with MockUSDT meta-transactions.
+    expect(SETTLEMENT_DEPLOY_GAS_ESTIMATE).to.equal(2_800_000n);
     expect(requiredWei(SETTLEMENT_DEPLOY_GAS_ESTIMATE)).to.be.lessThan(ethers.parseEther('0.1'));
   });
 });
