@@ -21,7 +21,7 @@ import { registerInvestorRoutes } from './investor/routes.ts';
 import { TOKEN_TRANSFERS_CURSOR } from './indexer/tokenWorker.ts';
 import { applySumsubWebhook, type ApplicantLookup } from './kyc/applyKyc.ts';
 import { MemoryIdentityStore, type IdentityRecord, type IdentityStore } from './kyc/identityStore.ts';
-import { fetchSumsubApplicant } from './kyc/sumsubClient.ts';
+import { createSumsubAccessToken, fetchSumsubApplicant } from './kyc/sumsubClient.ts';
 import { verifySumsubDigest } from './kyc/sumsubSignature.ts';
 import { MemoryMintStore, type MintStore } from './mint/mintStore.ts';
 import {
@@ -92,6 +92,8 @@ export type AppDeps = {
   chainId?: number;
   lockupModule?: string;
   checkoutContracts?: CheckoutContracts;
+  /** Defaults to Sumsub with the keys in env. */
+  createKycToken?: (userId: string) => Promise<{ token: string; levelName: string } | null>;
   /** Token read model and the cursor store it advances. */
   ledger?: TokenLedgerStore;
   syncStore?: SyncStateStore;
@@ -139,6 +141,7 @@ export function buildApp(deps: AppDeps = {}) {
     lockupModule: deps.lockupModule,
     identities: store,
     checkoutContracts: deps.checkoutContracts,
+    createKycToken: deps.createKycToken ?? ((userId) => createSumsubAccessToken({ userId })),
     now,
   });
 
