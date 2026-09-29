@@ -14,7 +14,7 @@ import {
 } from './admin/serialize.ts';
 import type { AssetCatalog, ChainReader } from './assets/catalog.ts';
 import { MemoryNonceStore, type NonceStore } from './auth/nonceStore.ts';
-import { registerAuthRoutes, type AuthConfig } from './auth/routes.ts';
+import { readSession, registerAuthRoutes, type AuthConfig } from './auth/routes.ts';
 import type { TokenLedgerStore } from './indexer/ledger.ts';
 import { registerInvestorRoutes } from './investor/routes.ts';
 import { TOKEN_TRANSFERS_CURSOR } from './indexer/tokenWorker.ts';
@@ -30,6 +30,7 @@ import {
   settleMintQuote,
   type MintExecutor,
 } from './mint/pipeline.ts';
+import { RelayRefused, relayUsdtApproval, type RelayApprovalInput } from '../../../config/relayer.ts';
 import { parseForwardRequest, relayEscrowDeposit } from './relayer/relayDeposit.ts';
 import type { SyncStateStore } from './settlement/syncState.ts';
 import { createRelayerSigner } from './signer/fromEnv.ts';
@@ -97,6 +98,10 @@ export type AppDeps = {
     request: NonNullable<ReturnType<typeof parseForwardRequest>>;
     signature: string;
   }) => Promise<{ txHash: string; intentId: string; amount: bigint }>;
+  /** Gasless USDT approval of the escrow. Unset answers 503 relayer_unavailable. */
+  relayApproval?: (
+    input: RelayApprovalInput & { expectedFrom: string },
+  ) => Promise<{ txHash: string; spender: string; amount: bigint }>;
 };
 
 export function buildApp(deps: AppDeps = {}) {
@@ -326,6 +331,40 @@ export function buildApp(deps: AppDeps = {}) {
     return { ok: true, quote: result.quote, decision: result.decision };
   });
 
+  // Signed-in investors only: every relayed approval costs the relayer gas.
+  app.post('/relayer/approve', async (request, reply) => {
+    if (!deps.auth) {
+      return reply.code(503).send({ ok: false, reason: 'auth_unconfigured' });
+    }
+    const session = readSession(request, deps.auth, now());
+    if (!session) {
+      return reply.code(401).send({ ok: false, reason: 'unauthenticated' });
+    }
+    if (!deps.relayApproval) {
+      return reply.code(503).send({ ok: false, reason: 'relayer_unavailable' });
+    }
+    const body = asRecord(request.body);
+    const input = {
+      from: asString(body.from),
+      functionSignature: asString(body.functionSignature),
+      signature: asString(body.signature),
+    };
+    if (!input.from || !input.functionSignature || !input.signature) {
+      return reply.code(400).send({ ok: false, reason: 'invalid_approval' });
+    }
+
+    try {
+      const result = await deps.relayApproval({ ...input, expectedFrom: session.walletAddress });
+      return { ok: true, txHash: result.txHash, spender: result.spender, amount: result.amount.toString() };
+    } catch (error) {
+      if (error instanceof RelayRefused) {
+        return reply.code(error.code === 'wrong_wallet' ? 403 : 400).send({ ok: false, reason: error.code });
+      }
+      request.log.error({ err: error }, 'approval relay failed');
+      return reply.code(502).send({ ok: false, reason: 'relay_failed' });
+    }
+  });
+
   app.post('/relayer/deposit', async (request, reply) => {
     if (!relayDeposit) {
       return reply.code(503).send({ ok: false, reason: 'relayer_unavailable' });
@@ -511,6 +550,22 @@ function createRelayHandler(): AppDeps['relayDeposit'] {
     });
 }
 
+function createApprovalHandler(): AppDeps['relayApproval'] {
+  const provider = rpcProvider();
+  const escrowAddress = process.env.ESCROW_ADDRESS;
+  const usdtAddress = process.env.USDT_ADDRESS;
+  if (!provider || !escrowAddress || !usdtAddress) {
+    return undefined;
+  }
+  const relayer = createRelayerSigner({ env: process.env, provider });
+  if (!relayer) {
+    return undefined;
+  }
+  const chainId = process.env.CHAIN_ID ? BigInt(process.env.CHAIN_ID) : 80002n;
+  return ({ expectedFrom, ...input }) =>
+    relayUsdtApproval({ input, usdtAddress, escrowAddress, chainId, relayer, expectedFrom });
+}
+
 async function main() {
   const stores = createStores();
 
@@ -544,6 +599,7 @@ async function main() {
     lookupApplicant: (applicantId) => fetchSumsubApplicant(applicantId),
     mint: 'executor' in mint ? mint.executor : undefined,
     relayDeposit: createRelayHandler(),
+    relayApproval: createApprovalHandler(),
   });
   const port = Number(process.env.API_PORT ?? 3001);
   await app.listen({ port, host: '0.0.0.0' });

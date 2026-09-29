@@ -15,6 +15,8 @@ import { decodeRevert } from '../../../../config/errors.ts';
 import { COUNTRY, ONE_SHARE, ONE_USDT, REQUIRED_CLAIM_TOPICS, TOKEN_DECIMALS } from '../../../../config/eqowa.ts';
 import { encodeEscrowDeposit, FORWARD_REQUEST_TYPES, forwarderDomain } from '../../../../config/forwarder.ts';
 import { QUOTE_TTL_SECONDS } from '../../../../config/mint.ts';
+import { USDT_META_IFACE, relayUsdtApproval } from '../../../../config/relayer.ts';
+import { META_TRANSACTION_TYPES, usdtMetaDomain } from '../../../../config/usdtMetaTx.ts';
 
 import { applySumsubWebhook } from '../kyc/applyKyc.ts';
 import { MemoryIdentityStore } from '../kyc/identityStore.ts';
@@ -288,19 +290,35 @@ export async function runScenario(ctx: SimContext, log: (line: string) => void =
     };
   });
 
-  const aliceUsdt = new Contract(settlement.usdt, MOCK_USDT_ABI, alice.signer);
+  const metaUsdt = new Contract(settlement.usdt, USDT_META_IFACE, ctx.provider);
   const aliceEscrow = new Contract(settlement.escrow, ESCROW_ABI, alice.signer);
 
   await step(
     'S09',
-    'Gasless deposit for Alice',
-    'Relayer submits, escrow records Alice as payer, Alice pays no gas for it',
+    'Gasless approval and deposit for Alice',
+    'Relayer submits the USDT approval and the deposit, escrow records Alice as payer, Alice pays no gas',
     async (txs) => {
       await sent(await mockUsdt.mint(alice.address, usdt(100_100n)), txs);
-      await sent(await aliceUsdt.approve(settlement.escrow, MaxUint256), txs);
 
       const before = await ctx.provider.getBalance(alice.address);
       const { chainId } = await ctx.provider.getNetwork();
+
+      // Polygon meta-transaction: Alice signs approve(escrow), the relayer pays.
+      const approveData = USDT_META_IFACE.encodeFunctionData('approve', [settlement.escrow, MaxUint256]);
+      const approveSignature = await alice.wallet.signTypedData(
+        usdtMetaDomain({ name: await metaUsdt.name(), verifyingContract: settlement.usdt, chainId }),
+        { MetaTransaction: [...META_TRANSACTION_TYPES.MetaTransaction] },
+        { nonce: await metaUsdt.getNonce(alice.address), from: alice.address, functionSignature: approveData },
+      );
+      const approval = await relayUsdtApproval({
+        input: { from: alice.address, functionSignature: approveData, signature: approveSignature },
+        usdtAddress: settlement.usdt,
+        escrowAddress: settlement.escrow,
+        chainId,
+        relayer: ctx.relayer,
+        expectedFrom: alice.address,
+      });
+      txs.push(approval.txHash);
       const request = {
         from: alice.address,
         to: settlement.escrow,
@@ -326,7 +344,7 @@ export async function runScenario(ctx: SimContext, log: (line: string) => void =
       const payer = await escrow.intentPayer(happy);
       const spent = before - (await ctx.provider.getBalance(alice.address));
       return {
-        actual: `payer ${payer === alice.address ? 'Alice' : payer}, Alice gas spent on deposit ${formatEther(spent)} POL`,
+        actual: `payer ${payer === alice.address ? 'Alice' : payer}, Alice gas spent on approval and deposit ${formatEther(spent)} POL`,
         pass: payer === alice.address && spent === 0n,
       };
     },
