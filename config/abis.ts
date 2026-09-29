@@ -39,6 +39,14 @@ export const TIME_LOCKUP_ABI = [
   'function getLockedTranches(address _compliance, address _identity) view returns (uint256[] amounts, uint256[] releaseTimes)',
 ];
 
+/** USDT reads for checkout: funds, current allowance and the meta-transaction nonce. */
+export const CHECKOUT_USDT_ABI = [
+  'function name() view returns (string)',
+  'function balanceOf(address account) view returns (uint256)',
+  'function allowance(address owner, address spender) view returns (uint256)',
+  'function getNonce(address user) view returns (uint256)',
+];
+
 export const IDENTITY_REGISTRY_ABI = [
   'function registerIdentity(address _userAddress, address _identity, uint16 _country)',
   'function isVerified(address _userAddress) view returns (bool)',

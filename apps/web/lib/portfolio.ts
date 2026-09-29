@@ -6,7 +6,7 @@ import { proxied } from '@/lib/siwe';
 /** A signed-out visitor is a normal state for these pages, not an error. */
 export type Loaded<T> = { state: 'ok'; data: T } | { state: 'signed_out' } | { state: 'unavailable'; reason: string };
 
-async function load<T extends { ok: true }>(route: string): Promise<Loaded<T>> {
+export async function load<T extends { ok: true }>(route: string): Promise<Loaded<T>> {
   let response: Response;
   try {
     response = await fetch(proxied(route), { cache: 'no-store' });

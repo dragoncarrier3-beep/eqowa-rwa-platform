@@ -1,19 +1,11 @@
 import { Interface, getAddress, verifyTypedData } from 'ethers';
 
-/** OpenZeppelin MinimalForwarder EIP-712 name and version. */
-export const FORWARDER_NAME = 'MinimalForwarder';
-export const FORWARDER_VERSION = '0.0.1';
+import { FORWARD_REQUEST_TYPES as SHARED_TYPES, FORWARDER_NAME, FORWARDER_VERSION } from './forwarderTypes';
 
-export const FORWARD_REQUEST_TYPES = {
-  ForwardRequest: [
-    { name: 'from', type: 'address' },
-    { name: 'to', type: 'address' },
-    { name: 'value', type: 'uint256' },
-    { name: 'gas', type: 'uint256' },
-    { name: 'nonce', type: 'uint256' },
-    { name: 'data', type: 'bytes' },
-  ],
-};
+export { FORWARDER_NAME, FORWARDER_VERSION };
+
+/** ethers wants mutable arrays; the shared definition is readonly for viem. */
+export const FORWARD_REQUEST_TYPES = { ForwardRequest: [...SHARED_TYPES.ForwardRequest] };
 
 export type ForwardRequest = {
   from: string;
