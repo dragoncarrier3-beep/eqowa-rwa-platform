@@ -95,6 +95,15 @@ describe('portfolio helpers', () => {
 });
 
 describe('PortfolioView', () => {
+  // Countdowns read the clock; pin it so fixed quote times stay in the future.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('asks a signed-out visitor to sign in', async () => {
     stubApi({
       '/api/investor/portfolio': { status: 401, body: { ok: false, reason: 'unauthenticated' } },

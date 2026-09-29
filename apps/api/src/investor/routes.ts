@@ -3,8 +3,10 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { ChainReader } from '../assets/catalog.ts';
 import { readSession, type AuthConfig } from '../auth/routes.ts';
 import type { Session } from '../auth/session.ts';
+import type { IdentityStore } from '../kyc/identityStore.ts';
 import type { MintStore } from '../mint/mintStore.ts';
 
+import { readCheckout, type CheckoutContracts } from './checkout.ts';
 import { readPortfolio } from './portfolio.ts';
 import { toInvestorQuote } from './quotes.ts';
 
@@ -16,8 +18,14 @@ export type InvestorRouteDeps = {
   chainId: number;
   tokenAddress: string;
   lockupModule?: string;
+  identities: IdentityStore;
+  /** Unset makes the checkout pre-flight 503. */
+  checkoutContracts?: CheckoutContracts;
   now: () => Date;
 };
+
+/** A single purchase is capped well above the 150,000-share holding limit. */
+const MAX_CHECKOUT_USDT = 10n ** 15n;
 
 const QUOTE_LIST_LIMIT = 50;
 
@@ -67,6 +75,39 @@ export function registerInvestorRoutes(app: FastifyInstance, deps: InvestorRoute
       });
     } catch (error) {
       request.log.error({ err: error }, 'portfolio read failed');
+      return reply.code(503).send({ ok: false, reason: 'chain_unavailable' });
+    }
+  });
+
+  app.get('/investor/checkout', async (request, reply) => {
+    const session = requireInvestor(request, reply);
+    if (!session) {
+      return reply;
+    }
+    const { usdtAmount } = request.query as { usdtAmount?: string };
+    if (typeof usdtAmount !== 'string' || !/^\d{1,20}$/.test(usdtAmount)) {
+      return reply.code(400).send({ ok: false, reason: 'invalid_amount' });
+    }
+    const amount = BigInt(usdtAmount);
+    if (amount === 0n || amount > MAX_CHECKOUT_USDT) {
+      return reply.code(400).send({ ok: false, reason: 'invalid_amount' });
+    }
+    if (!deps.chain || !deps.checkoutContracts) {
+      return reply.code(503).send({ ok: false, reason: 'checkout_unavailable' });
+    }
+    // Nonces change after every signature, so this must never be cached.
+    reply.header('cache-control', 'no-store');
+    try {
+      return await readCheckout({
+        chain: deps.chain,
+        chainId: deps.chainId,
+        contracts: deps.checkoutContracts,
+        identities: deps.identities,
+        walletAddress: session.walletAddress,
+        usdtAmount: amount,
+      });
+    } catch (error) {
+      request.log.error({ err: error }, 'checkout read failed');
       return reply.code(503).send({ ok: false, reason: 'chain_unavailable' });
     }
   });

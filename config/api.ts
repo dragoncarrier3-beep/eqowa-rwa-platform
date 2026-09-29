@@ -18,7 +18,9 @@ export const API_ROUTES = {
   investorPortfolio: '/investor/portfolio',
   investorQuotes: '/investor/quotes',
   investorQuote: (intentId: string) => `/investor/quotes/${intentId}`,
+  investorCheckout: '/investor/checkout',
   mintQuotes: '/mint/quotes',
+  relayerApprove: '/relayer/approve',
   relayerDeposit: '/relayer/deposit',
 } as const;
 
@@ -143,3 +145,39 @@ export type InvestorQuoteDto = {
 
 export type InvestorQuotesResponse = { ok: true; currentBlock: number | null; quotes: InvestorQuoteDto[] };
 export type InvestorQuoteResponse = { ok: true; currentBlock: number | null; quote: InvestorQuoteDto };
+
+/** Why a purchase cannot go ahead yet. The page explains each one. */
+export type CheckoutBlocker =
+  'below_share_price' | 'kyc_not_approved' | 'identity_not_verified' | 'not_compliant' | 'insufficient_usdt';
+
+/**
+ * Everything the checkout page needs for one amount, read at `blockNumber`:
+ * the split, the eligibility checks the token itself makes at mint
+ * (isVerified and canTransfer from the zero address), the investor's USDT,
+ * and the nonces and addresses to sign against. USDT amounts in base units.
+ */
+export type CheckoutResponse = {
+  ok: true;
+  walletAddress: string;
+  chainId: number;
+  blockNumber: number;
+  usdtAmount: string;
+  shares: string;
+  shareAmount: string;
+  fundsAmount: string;
+  feeAmount: string;
+  /** Paid beyond whole shares. Flagged for refund, never minted. */
+  remainderAmount: string;
+  kycStatus: KycStatus | null;
+  identityVerified: boolean;
+  compliant: boolean;
+  usdtBalance: string;
+  allowance: string;
+  /** True when the escrow allowance is short and a gasless approval is needed first. */
+  needsApproval: boolean;
+  blockers: CheckoutBlocker[];
+  contracts: { usdt: string; escrow: string; forwarder: string };
+  usdtName: string;
+  usdtMetaNonce: string;
+  forwarderNonce: string;
+};

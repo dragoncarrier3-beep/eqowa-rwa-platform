@@ -16,6 +16,7 @@ import type { AssetCatalog, ChainReader } from './assets/catalog.ts';
 import { MemoryNonceStore, type NonceStore } from './auth/nonceStore.ts';
 import { readSession, registerAuthRoutes, type AuthConfig } from './auth/routes.ts';
 import type { TokenLedgerStore } from './indexer/ledger.ts';
+import type { CheckoutContracts } from './investor/checkout.ts';
 import { registerInvestorRoutes } from './investor/routes.ts';
 import { TOKEN_TRANSFERS_CURSOR } from './indexer/tokenWorker.ts';
 import { applySumsubWebhook, type ApplicantLookup } from './kyc/applyKyc.ts';
@@ -90,6 +91,7 @@ export type AppDeps = {
   chain?: ChainReader;
   chainId?: number;
   lockupModule?: string;
+  checkoutContracts?: CheckoutContracts;
   /** Token read model and the cursor store it advances. */
   ledger?: TokenLedgerStore;
   syncStore?: SyncStateStore;
@@ -135,6 +137,8 @@ export function buildApp(deps: AppDeps = {}) {
     chainId: deps.chainId ?? Number(process.env.CHAIN_ID ?? 80002),
     tokenAddress,
     lockupModule: deps.lockupModule,
+    identities: store,
+    checkoutContracts: deps.checkoutContracts,
     now,
   });
 
@@ -550,6 +554,17 @@ function createRelayHandler(): AppDeps['relayDeposit'] {
     });
 }
 
+/** Checkout needs all four settlement addresses; any missing or malformed turns it off. */
+function checkoutContractsFromEnv(env = process.env): CheckoutContracts | undefined {
+  const contracts = {
+    token: env.TOKEN_ADDRESS ?? '',
+    usdt: env.USDT_ADDRESS ?? '',
+    escrow: env.ESCROW_ADDRESS ?? '',
+    forwarder: env.FORWARDER_ADDRESS ?? '',
+  };
+  return Object.values(contracts).every((address) => isAddress(address)) ? contracts : undefined;
+}
+
 function createApprovalHandler(): AppDeps['relayApproval'] {
   const provider = rpcProvider();
   const escrowAddress = process.env.ESCROW_ADDRESS;
@@ -600,6 +615,7 @@ async function main() {
     mint: 'executor' in mint ? mint.executor : undefined,
     relayDeposit: createRelayHandler(),
     relayApproval: createApprovalHandler(),
+    checkoutContracts: checkoutContractsFromEnv(),
   });
   const port = Number(process.env.API_PORT ?? 3001);
   await app.listen({ port, host: '0.0.0.0' });
