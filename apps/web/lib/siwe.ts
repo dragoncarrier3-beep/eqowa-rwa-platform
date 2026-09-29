@@ -1,6 +1,7 @@
 import { createSiweMessage } from 'viem/siwe';
 
 import type { ApiError, NonceResponse, SessionDto, SessionResponse } from '@config/api';
+import { TERMS_DOCUMENTS, consentStatement } from '@config/terms';
 
 /** Browser path of an API route through the same-origin proxy. */
 export function proxied(route: string) {
@@ -70,7 +71,9 @@ export async function signInWithEthereum(input: {
     nonce: nonceBody.nonce,
     issuedAt: now,
     expirationTime: new Date(nonceBody.expiresAt),
-    statement: 'Sign in to the EQOWA investor portal. This does not send a transaction or cost gas.',
+    // Signing this statement is the investor's acceptance of the terms.
+    statement: consentStatement(),
+    resources: TERMS_DOCUMENTS.map((doc) => `${location.origin}${doc.path}`),
   });
   const signature = await input.signMessage({ message });
 

@@ -1,3 +1,4 @@
+import { consentStatement } from '@config/terms';
 import { parseSiweMessage } from 'viem/siwe';
 
 import { SignInError, signInErrorText, signInWithEthereum, walletStage } from '@/lib/siwe';
@@ -36,6 +37,13 @@ describe('signInWithEthereum', () => {
     expect(parsed.uri).toBe('https://app.eqowa.com');
     expect(parsed.chainId).toBe(80002);
     expect(parsed.nonce).toBe('n0nce12345678');
+    // The signature doubles as acceptance of this exact terms version.
+    expect(parsed.statement).toBe(consentStatement());
+    expect(parsed.resources).toEqual([
+      'https://app.eqowa.com/legal/terms',
+      'https://app.eqowa.com/legal/privacy',
+      'https://app.eqowa.com/legal/risk',
+    ]);
     expect(parsed.address).toBe(ADDRESS);
     expect(parsed.expirationTime?.toISOString()).toBe('2026-09-29T10:10:00.000Z');
 

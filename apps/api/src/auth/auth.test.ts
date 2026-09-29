@@ -6,12 +6,14 @@ import { createSiweMessage } from 'viem/siwe';
 
 import type { InvestorMeResponse } from '../../../../config/api.ts';
 import { ONE_SHARE } from '../../../../config/eqowa.ts';
+import { TERMS_VERSION, consentStatement } from '../../../../config/terms.ts';
 
 import { createAuthConfigFromEnv } from '../bootstrap.ts';
 import { buildApp } from '../index.ts';
 import { MemoryTokenLedger } from '../indexer/ledger.ts';
 import { MemoryIdentityStore } from '../kyc/identityStore.ts';
 
+import { MemoryConsentStore } from './consentStore.ts';
 import { MemoryNonceStore } from './nonceStore.ts';
 import type { AuthConfig } from './routes.ts';
 import { parseCookies, serializeCookie, signSession, verifySession } from './session.ts';
@@ -36,9 +38,11 @@ function setup() {
   const identities = new MemoryIdentityStore();
   const ledger = new MemoryTokenLedger();
   const nonces = new MemoryNonceStore();
+  const consents = new MemoryConsentStore();
   const app = buildApp({
     auth: AUTH,
     nonces,
+    consents,
     identityStore: identities,
     ledger,
     tokenAddress: TOKEN,
@@ -48,6 +52,7 @@ function setup() {
     app,
     identities,
     ledger,
+    consents,
     advance: (ms: number) => {
       at += ms;
     },
@@ -71,7 +76,7 @@ function message(nonce: string, overrides: Partial<Parameters<typeof createSiweM
     nonce,
     issuedAt: NOW,
     expirationTime: new Date(NOW.getTime() + 10 * 60 * 1000),
-    statement: 'Sign in to EQOWA.',
+    statement: consentStatement(),
     ...overrides,
   });
 }
@@ -235,6 +240,8 @@ test('/investor/me returns KYC status and indexed holding for the signed-in wall
   assert.deepEqual(me.json(), {
     ok: true,
     walletAddress: INVESTOR.address,
+    termsAccepted: true,
+    termsVersion: TERMS_VERSION,
     kyc: {
       status: 'approved',
       countryCode: 566,
@@ -306,4 +313,38 @@ test('createAuthConfigFromEnv needs a long secret and the web host', () => {
       },
     },
   );
+});
+
+test('signing the consent sentence records the acceptance as evidence', async () => {
+  const { app, consents } = setup();
+  const text = message(await nonceFrom(app));
+  const signature = await INVESTOR.signMessage({ message: text });
+  const response = await app.inject({
+    method: 'POST',
+    url: '/auth/siwe/verify',
+    payload: { message: text, signature },
+  });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(consents.records, [
+    {
+      walletAddress: INVESTOR.address.toLowerCase(),
+      termsVersion: TERMS_VERSION,
+      message: text,
+      signature,
+      acceptedAt: NOW,
+    },
+  ]);
+  await app.close();
+});
+
+test('a sign-in without the current consent sentence records nothing and leaves terms unaccepted', async () => {
+  const { app, consents } = setup();
+  const old = message(await nonceFrom(app), { statement: consentStatement('2020-old') });
+  const response = await signIn(app, old);
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(consents.records, []);
+  const cookie = sessionCookie(response.headers['set-cookie']);
+  const me = await app.inject({ method: 'GET', url: '/investor/me', headers: { cookie } });
+  assert.equal(me.json().termsAccepted, false);
+  await app.close();
 });

@@ -13,6 +13,7 @@ import {
   serializeKycEvent,
 } from './admin/serialize.ts';
 import type { AssetCatalog, ChainReader } from './assets/catalog.ts';
+import { MemoryConsentStore, type ConsentStore } from './auth/consentStore.ts';
 import { MemoryNonceStore, type NonceStore } from './auth/nonceStore.ts';
 import { readSession, registerAuthRoutes, type AuthConfig } from './auth/routes.ts';
 import type { TokenLedgerStore } from './indexer/ledger.ts';
@@ -89,6 +90,7 @@ export type AppDeps = {
   /** Investor sign-in. Unset answers 503 on the auth routes. */
   auth?: AuthConfig;
   nonces?: NonceStore;
+  consents?: ConsentStore;
   /** Live reads for the investor portfolio and quote confirmations. */
   chain?: ChainReader;
   chainId?: number;
@@ -124,10 +126,12 @@ export function buildApp(deps: AppDeps = {}) {
   const ledger = deps.ledger;
   const syncStore = deps.syncStore;
   const tokenAddress = deps.tokenAddress ?? process.env.TOKEN_ADDRESS ?? '';
+  const consents = deps.consents ?? new MemoryConsentStore();
 
   registerAuthRoutes(app, {
     auth: deps.auth,
     nonces: deps.nonces ?? new MemoryNonceStore(),
+    consents,
     identities: store,
     ledger,
     tokenAddress,
@@ -142,6 +146,7 @@ export function buildApp(deps: AppDeps = {}) {
     tokenAddress,
     lockupModule: deps.lockupModule,
     identities: store,
+    consents,
     checkoutContracts: deps.checkoutContracts,
     createKycToken: deps.createKycToken ?? ((userId) => createSumsubAccessToken({ userId })),
     now,
@@ -609,6 +614,7 @@ async function main() {
   const app = buildApp({
     auth: 'auth' in auth ? auth.auth : undefined,
     nonces: stores.nonces,
+    consents: stores.consents,
     chain: rpcProvider(),
     lockupModule: isAddress(process.env.TIME_LOCKUP_MODULE_ADDRESS ?? '')
       ? process.env.TIME_LOCKUP_MODULE_ADDRESS

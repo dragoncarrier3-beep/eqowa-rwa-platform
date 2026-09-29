@@ -12,8 +12,10 @@ import {
 } from '../../../../config/abis.ts';
 import type { CheckoutResponse } from '../../../../config/api.ts';
 import { ONE_SHARE, ONE_USDT } from '../../../../config/eqowa.ts';
+import { TERMS_VERSION } from '../../../../config/terms.ts';
 
 import type { ChainReader } from '../assets/catalog.ts';
+import { MemoryConsentStore } from '../auth/consentStore.ts';
 import type { AuthConfig } from '../auth/routes.ts';
 import { signSession } from '../auth/session.ts';
 import { buildApp } from '../index.ts';
@@ -82,6 +84,19 @@ function fakeChain(map: Contracts) {
   return chain;
 }
 
+/** A consent store in which WALLET has accepted the current terms. */
+async function acceptedConsents(wallet = WALLET) {
+  const consents = new MemoryConsentStore();
+  await consents.record({
+    walletAddress: wallet,
+    termsVersion: TERMS_VERSION,
+    message: 'm',
+    signature: '0x',
+    acceptedAt: NOW,
+  });
+  return consents;
+}
+
 async function approvedIdentities(status: 'approved' | 'pending' = 'approved') {
   const identities = new MemoryIdentityStore();
   await identities.recordKyc({
@@ -108,6 +123,7 @@ async function checkout(options: {
   identities?: MemoryIdentityStore;
   usdtAmount?: string;
   withContracts?: boolean;
+  consents?: MemoryConsentStore;
 }) {
   const app = buildApp({
     auth: AUTH,
@@ -115,6 +131,7 @@ async function checkout(options: {
     chainId: 80002,
     identityStore: options.identities ?? (await approvedIdentities()),
     checkoutContracts: options.withContracts === false ? undefined : CONTRACTS,
+    consents: options.consents ?? (await acceptedConsents()),
     now: () => NOW,
   });
   const response = await app.inject({
@@ -210,4 +227,9 @@ test('needs a signed-in investor', async () => {
   const response = await app.inject({ method: 'GET', url: '/investor/checkout?usdtAmount=5000000' });
   assert.equal(response.statusCode, 401);
   await app.close();
+});
+
+test('blocks a purchase until the current terms are accepted', async () => {
+  const response = await checkout({ chain: fakeChain(contracts()), consents: new MemoryConsentStore() });
+  assert.deepEqual(response.json().blockers, ['terms_not_accepted']);
 });

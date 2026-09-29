@@ -24,7 +24,7 @@ export async function verifySiweLogin(input: {
   expected: SiweExpectation;
   nonces: NonceStore;
   now: Date;
-}): Promise<{ walletAddress: string } | { error: SiweError }> {
+}): Promise<{ walletAddress: string; statement: string | null } | { error: SiweError }> {
   const parsed = parseSiweMessage(input.message);
   if (!parsed.address || !parsed.nonce || !parsed.domain || !parsed.uri || parsed.version !== '1' || !parsed.issuedAt) {
     return { error: 'invalid_message' };
@@ -65,5 +65,5 @@ export async function verifySiweLogin(input: {
   if (!(await input.nonces.consume(parsed.nonce, input.now))) {
     return { error: 'invalid_nonce' };
   }
-  return { walletAddress: getAddress(parsed.address) };
+  return { walletAddress: getAddress(parsed.address), statement: parsed.statement ?? null };
 }

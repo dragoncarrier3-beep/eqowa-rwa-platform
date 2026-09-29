@@ -87,6 +87,9 @@ export type KycStatus = 'pending' | 'approved' | 'rejected' | 'blocked_country';
 export type InvestorMeResponse = {
   ok: true;
   walletAddress: string;
+  /** Accepted the current version of the terms, by signing it at sign-in. */
+  termsAccepted: boolean;
+  termsVersion: string;
   /** Null until Sumsub has sent a result for this wallet. */
   kyc: {
     status: KycStatus;
@@ -156,7 +159,12 @@ export type InvestorQuoteResponse = { ok: true; currentBlock: number | null; quo
 
 /** Why a purchase cannot go ahead yet. The page explains each one. */
 export type CheckoutBlocker =
-  'below_share_price' | 'kyc_not_approved' | 'identity_not_verified' | 'not_compliant' | 'insufficient_usdt';
+  | 'terms_not_accepted'
+  | 'below_share_price'
+  | 'kyc_not_approved'
+  | 'identity_not_verified'
+  | 'not_compliant'
+  | 'insufficient_usdt';
 
 /**
  * Everything the checkout page needs for one amount, read at `blockNumber`:

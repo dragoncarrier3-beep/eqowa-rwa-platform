@@ -3,6 +3,9 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { ChainReader } from '../assets/catalog.ts';
 import { readSession, type AuthConfig } from '../auth/routes.ts';
 import type { Session } from '../auth/session.ts';
+import { TERMS_VERSION } from '../../../../config/terms.ts';
+
+import type { ConsentStore } from '../auth/consentStore.ts';
 import type { IdentityStore } from '../kyc/identityStore.ts';
 import type { MintStore } from '../mint/mintStore.ts';
 
@@ -19,6 +22,7 @@ export type InvestorRouteDeps = {
   tokenAddress: string;
   lockupModule?: string;
   identities: IdentityStore;
+  consents: ConsentStore;
   /** Unset makes the checkout pre-flight 503. */
   checkoutContracts?: CheckoutContracts;
   /** Sumsub WebSDK token for a wallet; null when Sumsub keys are not set. */
@@ -107,6 +111,7 @@ export function registerInvestorRoutes(app: FastifyInstance, deps: InvestorRoute
         identities: deps.identities,
         walletAddress: session.walletAddress,
         usdtAmount: amount,
+        termsAccepted: await deps.consents.hasAccepted(session.walletAddress, TERMS_VERSION),
       });
     } catch (error) {
       request.log.error({ err: error }, 'checkout read failed');
@@ -118,6 +123,10 @@ export function registerInvestorRoutes(app: FastifyInstance, deps: InvestorRoute
     const session = requireInvestor(request, reply);
     if (!session) {
       return reply;
+    }
+    // KYC shares personal data with Sumsub, so the privacy terms come first.
+    if (!(await deps.consents.hasAccepted(session.walletAddress, TERMS_VERSION))) {
+      return reply.code(403).send({ ok: false, reason: 'terms_not_accepted' });
     }
     const identity = await deps.identities.getByWallet(session.walletAddress);
     if (identity?.kycStatus === 'approved') {

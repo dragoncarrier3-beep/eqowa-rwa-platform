@@ -153,9 +153,21 @@ CREATE TABLE IF NOT EXISTS auth_nonces (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Investor acceptance of the terms. The signed Sign-In with Ethereum message
+-- is kept as evidence. Append-only: rows are never updated or deleted.
+CREATE TABLE IF NOT EXISTS investor_consents (
+  id BIGSERIAL PRIMARY KEY,
+  wallet_address TEXT NOT NULL,
+  terms_version TEXT NOT NULL,
+  message TEXT NOT NULL,
+  signature TEXT NOT NULL,
+  accepted_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS transactions_block_number_idx ON transactions (block_number);
 CREATE INDEX IF NOT EXISTS exceptions_status_idx ON exceptions (status);
 CREATE INDEX IF NOT EXISTS mint_intents_status_idx ON mint_intents (status);
 CREATE INDEX IF NOT EXISTS kyc_events_applicant_id_idx ON kyc_events (applicant_id);
 CREATE INDEX IF NOT EXISTS balances_holders_idx ON balances (token_address, balance DESC) WHERE balance > 0 OR frozen;
 CREATE INDEX IF NOT EXISTS mint_intents_wallet_idx ON mint_intents (lower(wallet_address), created_at DESC);
+CREATE INDEX IF NOT EXISTS investor_consents_wallet_idx ON investor_consents (wallet_address, terms_version);

@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { JsonRpcProvider, NonceManager, Wallet, isAddress, type Signer } from 'ethers';
 import pg from 'pg';
 
+import { MemoryConsentStore, PgConsentStore, type ConsentStore } from './auth/consentStore.ts';
 import { MemoryNonceStore, PgNonceStore, type NonceStore } from './auth/nonceStore.ts';
 import type { AuthConfig } from './auth/routes.ts';
 import { MIN_SECRET_LENGTH } from './auth/session.ts';
@@ -44,6 +45,7 @@ export type Stores = {
   syncStore: SyncStateStore;
   ledger: TokenLedgerStore;
   nonces: NonceStore;
+  consents: ConsentStore;
   pool?: pg.Pool;
 };
 
@@ -56,6 +58,7 @@ export function createStores(env: Env = process.env): Stores {
       syncStore: new MemorySyncStateStore(),
       ledger: new MemoryTokenLedger(),
       nonces: new MemoryNonceStore(),
+      consents: new MemoryConsentStore(),
     };
   }
   const pool = new pg.Pool({ connectionString: env.DATABASE_URL });
@@ -65,6 +68,7 @@ export function createStores(env: Env = process.env): Stores {
     syncStore: new PgSyncStateStore(pool),
     ledger: new PgTokenLedger(pool),
     nonces: new PgNonceStore(pool),
+    consents: new PgConsentStore(pool),
     pool,
   };
 }

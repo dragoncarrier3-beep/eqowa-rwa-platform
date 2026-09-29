@@ -5,6 +5,7 @@ import { LogOut, Wallet } from 'lucide-react';
 import { useState } from 'react';
 import { useAccount, useConnect, useDisconnect, useSignMessage, useSwitchChain } from 'wagmi';
 
+import { ConsentPanel } from '@/components/consent-panel';
 import { Button } from '@/components/ui/button';
 import { shortAddress } from '@/lib/format';
 import { fetchSession, signInErrorText, signInWithEthereum, signOut, walletStage } from '@/lib/siwe';
@@ -26,6 +27,7 @@ export function WalletButton() {
   const { switchChain, isPending: switching } = useSwitchChain();
   const { signMessageAsync } = useSignMessage();
   const [choosing, setChoosing] = useState(false);
+  const [consenting, setConsenting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,6 +43,9 @@ export function WalletButton() {
     try {
       const signed = await signInWithEthereum({ address, chainId: APP_CHAIN.id, signMessage: signMessageAsync });
       queryClient.setQueryData(SESSION_KEY, signed);
+      setConsenting(false);
+      // Pages gated on the terms (KYC, checkout) re-read the investor.
+      await queryClient.invalidateQueries({ queryKey: ['me'] });
     } catch (caught) {
       setError(signInErrorText(caught));
     } finally {
@@ -97,16 +102,17 @@ export function WalletButton() {
 
   if (stage === 'needs_sign_in') {
     return (
-      <div className="flex items-center gap-2">
+      <div className="relative flex items-center gap-2">
         {error ? (
           <span role="alert" className="max-w-56 text-xs text-[#ff8a8e]">
             {error}
           </span>
         ) : null}
         <span className="font-mono text-xs text-text-muted">{shortAddress(address ?? '')}</span>
-        <Button size="sm" onClick={handleSignIn} disabled={busy}>
-          {busy ? 'Check your wallet' : 'Sign in'}
+        <Button size="sm" onClick={() => setConsenting(true)} disabled={busy} aria-expanded={consenting}>
+          Sign in
         </Button>
+        {consenting ? <ConsentPanel busy={busy} onAgree={handleSignIn} onCancel={() => setConsenting(false)} /> : null}
         <Button size="sm" variant="ghost" onClick={() => disconnect()} aria-label="Disconnect wallet">
           <LogOut className="size-4" aria-hidden />
         </Button>
