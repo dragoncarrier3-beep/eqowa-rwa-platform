@@ -1,20 +1,10 @@
-import {
-  Contract,
-  ContractFactory,
-  MaxUint256,
-  formatEther,
-  formatUnits,
-  getAddress,
-  id,
-  type TransactionResponse,
-} from 'ethers';
-import OnchainID from '@onchain-id/solidity';
+import { Contract, MaxUint256, formatEther, formatUnits, getAddress, id, type TransactionResponse } from 'ethers';
 
-import { CLAIM_DATA, CLAIM_SCHEME_ECDSA, signClaim } from '../../../../config/claims.ts';
 import { decodeRevert } from '../../../../config/errors.ts';
-import { COUNTRY, ONE_SHARE, ONE_USDT, REQUIRED_CLAIM_TOPICS, TOKEN_DECIMALS } from '../../../../config/eqowa.ts';
+import { COUNTRY, ONE_SHARE, ONE_USDT, TOKEN_DECIMALS } from '../../../../config/eqowa.ts';
 import { encodeEscrowDeposit, FORWARD_REQUEST_TYPES, forwarderDomain } from '../../../../config/forwarder.ts';
 import { QUOTE_TTL_SECONDS } from '../../../../config/mint.ts';
+import { onboardInvestor } from '../../../../config/onboarding.ts';
 import { USDT_META_IFACE, relayUsdtApproval } from '../../../../config/relayer.ts';
 import { META_TRANSACTION_TYPES, usdtMetaDomain } from '../../../../config/usdtMetaTx.ts';
 
@@ -32,7 +22,6 @@ import {
   COMPLIANCE_ABI,
   ESCROW_ABI,
   FORWARDER_ABI,
-  IDENTITY_ABI,
   IDENTITY_REGISTRY_ABI,
   MOCK_USDT_ABI,
   MODULE_ABI,
@@ -191,25 +180,22 @@ export async function runScenario(ctx: SimContext, log: (line: string) => void =
   });
 
   // --------------------------------------------------------------- identities
+  // The production onboarding path: agent deploys and manages the identity,
+  // the claim issuer key signs both claims, the agent registers it.
   async function registerInvestor(address: string, country: number, txs: string[]) {
-    const factory = new ContractFactory(
-      OnchainID.contracts.IdentityProxy.abi,
-      OnchainID.contracts.IdentityProxy.bytecode,
-      ctx.operator,
-    );
-    const proxy = await factory.deploy(deployment.identityImplementationAuthority, ctx.operatorWallet.address);
-    await sent(proxy.deploymentTransaction()!, txs);
-    const identityAddress = await proxy.getAddress();
-    const identity = new Contract(identityAddress, IDENTITY_ABI, ctx.operator);
-    for (const topic of REQUIRED_CLAIM_TOPICS) {
-      const signature = await signClaim(ctx.operatorWallet, identityAddress, topic);
-      await sent(
-        await identity.addClaim(topic, CLAIM_SCHEME_ECDSA, deployment.claimIssuer, signature, CLAIM_DATA, ''),
-        txs,
-      );
-    }
-    await sent(await registry.registerIdentity(address, identityAddress, country), txs);
-    return identityAddress;
+    const onboarded = await onboardInvestor({
+      wallet: address,
+      countryCode: country,
+      contracts: {
+        identityRegistry: deployment.identityRegistry,
+        claimIssuer: deployment.claimIssuer,
+        identityImplementationAuthority: deployment.identityImplementationAuthority,
+      },
+      agent: ctx.agent,
+      claimSigner: ctx.operatorWallet,
+    });
+    txs.push(...onboarded.txHashes);
+    return onboarded.identityAddress;
   }
 
   await step(

@@ -99,6 +99,7 @@ describe('KycView', () => {
           status: 'approved',
           countryCode: 566,
           onchainIdAddress: '0x2222222222222222222222222222222222222222',
+          registration: 'registered',
         }),
       },
     });
@@ -108,14 +109,43 @@ describe('KycView', () => {
     expect(screen.queryByRole('button', { name: /verification/i })).toBeNull();
   });
 
+  it('explains the on-chain registration after approval, and a registration that needs ops', async () => {
+    stubApi({
+      '/api/investor/me': {
+        body: me({ status: 'approved', countryCode: 566, onchainIdAddress: '0x0', registration: 'pending' }),
+      },
+    });
+    const first = renderView();
+    expect(await screen.findByText('Registering your identity on-chain')).toBeTruthy();
+    // Buying opens only once the registry verifies the identity.
+    expect(screen.queryByText('Continue to buy shares')).toBeNull();
+    expect(screen.queryByRole('button')).toBeNull();
+    first.unmount();
+
+    stubApi({
+      '/api/investor/me': {
+        body: me({ status: 'approved', countryCode: 566, onchainIdAddress: '0x0', registration: 'failed' }),
+      },
+    });
+    renderView();
+    expect(await screen.findByText('Verified, registration needs attention')).toBeTruthy();
+    expect(screen.getByText(/you do not need to verify again/)).toBeTruthy();
+  });
+
   it('lets a rejected investor try again and explains a blocked country', async () => {
-    stubApi({ '/api/investor/me': { body: me({ status: 'rejected', countryCode: 566, onchainIdAddress: '0x0' }) } });
+    stubApi({
+      '/api/investor/me': {
+        body: me({ status: 'rejected', countryCode: 566, onchainIdAddress: '0x0', registration: 'pending' }),
+      },
+    });
     const first = renderView();
     expect(await screen.findByRole('button', { name: 'Try again' })).toBeTruthy();
     first.unmount();
 
     stubApi({
-      '/api/investor/me': { body: me({ status: 'blocked_country', countryCode: 840, onchainIdAddress: '0x0' }) },
+      '/api/investor/me': {
+        body: me({ status: 'blocked_country', countryCode: 840, onchainIdAddress: '0x0', registration: 'pending' }),
+      },
     });
     renderView();
     expect(await screen.findByText('Not available in your country')).toBeTruthy();

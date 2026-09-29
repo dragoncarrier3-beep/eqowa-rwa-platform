@@ -47,6 +47,7 @@ export function serializeIdentity(row: IdentityRecord) {
     countryCode: row.countryCode,
     kycStatus: row.kycStatus,
     claims: row.claims,
+    onchain: row.onchain ?? null,
   };
 }
 

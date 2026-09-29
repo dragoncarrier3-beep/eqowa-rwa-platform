@@ -22,6 +22,15 @@ CREATE TABLE IF NOT EXISTS identities (
 
 ALTER TABLE identities ADD COLUMN IF NOT EXISTS sumsub_applicant_id TEXT;
 
+-- On-chain registration after KYC approval, written only by the onboarding
+-- worker. Kept apart from onchainid_address (the row key) so a repeat review
+-- cannot reset it.
+ALTER TABLE identities ADD COLUMN IF NOT EXISTS onchain_identity TEXT;
+ALTER TABLE identities ADD COLUMN IF NOT EXISTS onchain_status TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE identities ADD COLUMN IF NOT EXISTS onchain_error TEXT;
+ALTER TABLE identities ADD COLUMN IF NOT EXISTS onchain_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE identities ADD COLUMN IF NOT EXISTS onchain_updated_at TIMESTAMPTZ;
+
 CREATE UNIQUE INDEX IF NOT EXISTS identities_sumsub_applicant_id_uidx
   ON identities (sumsub_applicant_id)
   WHERE sumsub_applicant_id IS NOT NULL;

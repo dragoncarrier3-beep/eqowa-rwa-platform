@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import dotenv from 'dotenv';
-import { JsonRpcProvider, isAddress } from 'ethers';
+import { JsonRpcProvider, NonceManager, Wallet, isAddress, type Signer } from 'ethers';
 import pg from 'pg';
 
 import { MemoryNonceStore, PgNonceStore, type NonceStore } from './auth/nonceStore.ts';
@@ -18,6 +18,9 @@ import { PgMintStore } from './mint/pgMintStore.ts';
 import type { MintExecutor } from './mint/pipeline.ts';
 import { MemorySyncStateStore, PgSyncStateStore, type SyncStateStore } from './settlement/syncState.ts';
 import { createSettlementWorker, type SettlementWorkerDeps } from './settlement/worker.ts';
+import { onboardInvestor } from '../../../config/onboarding.ts';
+
+import { createOnboardingWorker } from './kyc/onboardingWorker.ts';
 import { createAgentSigner } from './signer/fromEnv.ts';
 import { createTokenMintExecutor } from './signer/executeMint.ts';
 
@@ -66,17 +69,38 @@ export function createStores(env: Env = process.env): Stores {
   };
 }
 
+/**
+ * The one agent signer the process uses. Minting and on-chain onboarding both
+ * send from the agent key; a single NonceManager hands out nonces in order, so
+ * two workers sending at the same moment cannot collide.
+ */
+export function createSharedAgentSigner(
+  env: Env = process.env,
+  provider = rpcProvider(env),
+): { signer: Signer } | { disabled: string } {
+  if (!provider) {
+    return { disabled: 'AMOY_RPC_URL is required' };
+  }
+  try {
+    const signer = createAgentSigner({ env, provider });
+    return signer ? { signer: new NonceManager(signer) } : { disabled: 'set AGENT_SIGNER_PRIVATE_KEY or KMS_KEY_ARN' };
+  } catch (error) {
+    return { disabled: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 /** Agent mint executor from env, or the reason it cannot be built. */
 export function createMintExecutor(
   env: Env = process.env,
   provider = rpcProvider(env),
+  sharedSigner?: Signer,
 ): { executor: MintExecutor } | { disabled: string } {
   const tokenAddress = env.TOKEN_ADDRESS;
   if (!tokenAddress || !provider) {
     return { disabled: 'TOKEN_ADDRESS and AMOY_RPC_URL are required' };
   }
   try {
-    const signer = createAgentSigner({ env, provider });
+    const signer = sharedSigner ?? createAgentSigner({ env, provider });
     if (!signer) {
       return { disabled: 'set AGENT_SIGNER_PRIVATE_KEY or KMS_KEY_ARN' };
     }
@@ -98,6 +122,7 @@ function positiveInt(value: string | undefined, fallback: number) {
 export function createSettlementWorkerFromEnv(
   stores: Stores,
   env: Env = process.env,
+  sharedSigner?: Signer,
 ): { worker: ReturnType<typeof createSettlementWorker> } | { disabled: string } {
   if (env.SETTLEMENT_WORKER === 'off') {
     return { disabled: 'SETTLEMENT_WORKER=off' };
@@ -121,7 +146,7 @@ export function createSettlementWorkerFromEnv(
     return { disabled: 'set INDEX_FROM_BLOCK to the escrow deploy block' };
   }
 
-  const mint = createMintExecutor(env, provider);
+  const mint = createMintExecutor(env, provider, sharedSigner);
   if ('disabled' in mint) {
     return { disabled: `agent mint unavailable: ${mint.disabled}` };
   }
@@ -237,5 +262,56 @@ export function createAuthConfigFromEnv(env: Env = process.env): { auth: AuthCon
       siweDomain: env.SIWE_DOMAIN,
       chainId: positiveInt(env.CHAIN_ID, 80002),
     },
+  };
+}
+
+/**
+ * Registers KYC-approved investors on-chain. Needs the registry, the trusted
+ * ClaimIssuer and the ONCHAINID implementation authority (all in
+ * deployments/<network>.json), a claim signing key registered on the
+ * ClaimIssuer, and the agent signer, which is also the registry agent.
+ */
+export function createOnboardingWorkerFromEnv(
+  stores: Stores,
+  env: Env = process.env,
+  agent?: Signer,
+): { worker: ReturnType<typeof createOnboardingWorker> } | { disabled: string } {
+  if (env.ONBOARDING_WORKER === 'off') {
+    return { disabled: 'ONBOARDING_WORKER=off' };
+  }
+  const names = ['IDENTITY_REGISTRY_ADDRESS', 'CLAIM_ISSUER_ADDRESS', 'IDENTITY_IMPLEMENTATION_AUTHORITY_ADDRESS'];
+  const missing = names.filter((name) => !env[name]);
+  if (missing.length > 0) {
+    return { disabled: `missing ${missing.join(', ')}` };
+  }
+  for (const name of names) {
+    if (!isAddress(env[name])) {
+      return { disabled: `${name} is not an address` };
+    }
+  }
+  if (!env.CLAIM_ISSUER_SIGNING_KEY) {
+    return { disabled: 'set CLAIM_ISSUER_SIGNING_KEY to a claim signing key of the ClaimIssuer' };
+  }
+  if (!agent) {
+    return { disabled: 'agent signer unavailable' };
+  }
+
+  let claimSigner: Wallet;
+  try {
+    claimSigner = new Wallet(env.CLAIM_ISSUER_SIGNING_KEY);
+  } catch {
+    return { disabled: 'CLAIM_ISSUER_SIGNING_KEY is not a private key' };
+  }
+  const contracts = {
+    identityRegistry: env.IDENTITY_REGISTRY_ADDRESS!,
+    claimIssuer: env.CLAIM_ISSUER_ADDRESS!,
+    identityImplementationAuthority: env.IDENTITY_IMPLEMENTATION_AUTHORITY_ADDRESS!,
+  };
+  return {
+    worker: createOnboardingWorker({
+      identities: stores.identities,
+      onboard: (input) => onboardInvestor({ ...input, contracts, agent, claimSigner }),
+      pollMs: positiveInt(env.ONBOARDING_POLL_MS, 15_000),
+    }),
   };
 }

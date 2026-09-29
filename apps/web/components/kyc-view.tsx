@@ -14,7 +14,9 @@ import { fetchInvestorMe, kycErrorText, requestKycToken } from '@/lib/kyc';
 
 type Sdk = { destroy(): void };
 
-const STATUS_TEXT: Record<KycStatus | 'none', { title: string; body: string }> = {
+type Shown = KycStatus | 'none' | 'registering' | 'registration_failed';
+
+const STATUS_TEXT: Record<Shown, { title: string; body: string }> = {
   none: {
     title: 'Verify your identity',
     body: 'EQOWA Group Shares can only be held by verified investors. Have your passport, ID card or driving licence ready. It takes about five minutes, including a short selfie video.',
@@ -23,9 +25,17 @@ const STATUS_TEXT: Record<KycStatus | 'none', { title: string; body: string }> =
     title: 'Verification in review',
     body: 'Your documents are with our verification partner. Most reviews finish within minutes; some take longer. This page updates on its own.',
   },
+  registering: {
+    title: 'Registering your identity on-chain',
+    body: 'Your verification is approved. EQOWA is now registering your verified identity on Polygon so the token can check every transfer against it. This usually takes a minute, and costs you nothing.',
+  },
   approved: {
     title: 'Identity verified',
-    body: 'You can buy EQOWA Group Shares. Your verified identity is registered on-chain so every transfer can be checked against it; this can take a few minutes after approval.',
+    body: 'You can buy EQOWA Group Shares. Your verified identity is registered on-chain, so every transfer is checked against it.',
+  },
+  registration_failed: {
+    title: 'Verified, registration needs attention',
+    body: 'Your verification is approved, but registering it on-chain did not complete. EQOWA operations can see this and will finish it; you do not need to verify again.',
   },
   rejected: {
     title: 'Verification not approved',
@@ -54,7 +64,12 @@ export function KycView() {
     queryKey: ['me'],
     queryFn: fetchInvestorMe,
     // Poll once documents are submitted, so the webhook's result shows without a reload.
-    refetchInterval: submitted ? 5_000 : false,
+    // Poll while waiting on Sumsub's result or on the on-chain registration.
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      const kyc = data?.state === 'ok' ? data.data.kyc : null;
+      return submitted || (kyc?.status === 'approved' && kyc.registration === 'pending') ? 5_000 : false;
+    },
   });
 
   useEffect(() => () => sdk.current?.destroy(), []);
@@ -76,8 +91,17 @@ export function KycView() {
     );
   }
 
-  const status: KycStatus | 'none' = me.data?.state === 'ok' ? (me.data.data.kyc?.status ?? 'none') : 'none';
-  const shown = submitted && (status === 'none' || status === 'rejected') ? 'pending' : status;
+  const kyc = me.data?.state === 'ok' ? me.data.data.kyc : null;
+  const status: KycStatus | 'none' = kyc?.status ?? 'none';
+  const registered = status === 'approved' && kyc?.registration === 'registered';
+  const shown: Shown =
+    submitted && (status === 'none' || status === 'rejected')
+      ? 'pending'
+      : status === 'approved' && !registered
+        ? kyc?.registration === 'failed'
+          ? 'registration_failed'
+          : 'registering'
+        : status;
   const text = STATUS_TEXT[shown];
   const canStart = (status === 'none' || status === 'rejected') && !launched;
 
@@ -134,7 +158,7 @@ export function KycView() {
               {starting ? 'Opening verification' : status === 'rejected' ? 'Try again' : 'Start verification'}
             </Button>
           ) : null}
-          {status === 'approved' ? (
+          {registered ? (
             <Link href="/buy" className="text-sm text-[#8fc1ef] hover:underline">
               Continue to buy shares
             </Link>

@@ -4,7 +4,7 @@ import { generateSiweNonce } from 'viem/siwe';
 import type { InvestorMeResponse, SessionDto } from '../../../../config/api.ts';
 
 import type { TokenLedgerStore } from '../indexer/ledger.ts';
-import type { IdentityStore } from '../kyc/identityStore.ts';
+import type { IdentityRecord, IdentityStore } from '../kyc/identityStore.ts';
 
 import { NONCE_TTL_SECONDS, type NonceStore } from './nonceStore.ts';
 import {
@@ -38,6 +38,12 @@ export type AuthRouteDeps = {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+/** What an investor sees of the on-chain step: deployed-but-unfinished is still pending. */
+function registrationOf(identity: IdentityRecord): 'pending' | 'registered' | 'failed' {
+  const status = identity.onchain?.status;
+  return status === 'registered' || status === 'failed' ? status : 'pending';
 }
 
 function toDto(session: Session): SessionDto {
@@ -146,7 +152,12 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps) {
       ok: true,
       walletAddress: session.walletAddress,
       kyc: identity
-        ? { status: identity.kycStatus, countryCode: identity.countryCode, onchainIdAddress: identity.onchainIdAddress }
+        ? {
+            status: identity.kycStatus,
+            countryCode: identity.countryCode,
+            onchainIdAddress: identity.onchain?.identityAddress ?? identity.onchainIdAddress,
+            registration: registrationOf(identity),
+          }
         : null,
       holding: holding
         ? { balance: holding.balance.toString(), frozen: holding.frozen, updatedBlock: holding.updatedBlock }

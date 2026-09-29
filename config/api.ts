@@ -88,7 +88,14 @@ export type InvestorMeResponse = {
   ok: true;
   walletAddress: string;
   /** Null until Sumsub has sent a result for this wallet. */
-  kyc: { status: KycStatus; countryCode: number | null; onchainIdAddress: string } | null;
+  kyc: {
+    status: KycStatus;
+    countryCode: number | null;
+    /** The real ONCHAINID once registered; before that, a placeholder. */
+    onchainIdAddress: string;
+    /** On-chain registration after approval. Buying needs 'registered'. */
+    registration: 'pending' | 'registered' | 'failed';
+  } | null;
   /** Null until the token indexer has seen this wallet. Balance in token base units. */
   holding: { balance: string; frozen: boolean; updatedBlock: number } | null;
 };

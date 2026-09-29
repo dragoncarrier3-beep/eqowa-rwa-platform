@@ -39,7 +39,9 @@ import {
   createAssetCatalogFromEnv,
   createAuthConfigFromEnv,
   createMintExecutor,
+  createOnboardingWorkerFromEnv,
   createSettlementWorkerFromEnv,
+  createSharedAgentSigner,
   createStores,
   createTokenIndexerFromEnv,
   loadEnv,
@@ -587,7 +589,9 @@ function createApprovalHandler(): AppDeps['relayApproval'] {
 async function main() {
   const stores = createStores();
 
-  const mint = createMintExecutor();
+  const shared = createSharedAgentSigner();
+  const agentSigner = 'signer' in shared ? shared.signer : undefined;
+  const mint = createMintExecutor(process.env, rpcProvider(), agentSigner);
   if ('disabled' in mint) {
     console.warn(`Agent mint disabled: ${mint.disabled}`);
   }
@@ -625,11 +629,18 @@ async function main() {
 
   // Runs in this process unless SETTLEMENT_WORKER=off, for example when the
   // standalone `npm run api:worker` is used instead.
-  const settlement = createSettlementWorkerFromEnv(stores);
+  const settlement = createSettlementWorkerFromEnv(stores, process.env, agentSigner);
   if ('worker' in settlement) {
     settlement.worker.start();
   } else {
     app.log.warn(`Settlement worker off: ${settlement.disabled}`);
+  }
+
+  const onboarding = createOnboardingWorkerFromEnv(stores, process.env, agentSigner);
+  if ('worker' in onboarding) {
+    onboarding.worker.start();
+  } else {
+    app.log.warn(`On-chain onboarding off: ${onboarding.disabled}`);
   }
 
   const tokenIndex = createTokenIndexerFromEnv(stores);
@@ -645,6 +656,9 @@ async function main() {
     }
     if ('indexer' in tokenIndex) {
       await tokenIndex.indexer.stop();
+    }
+    if ('worker' in onboarding) {
+      await onboarding.worker.stop();
     }
     await app.close();
     await stores.pool?.end();

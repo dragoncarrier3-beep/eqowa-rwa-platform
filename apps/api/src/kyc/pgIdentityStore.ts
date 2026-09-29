@@ -1,6 +1,13 @@
 import type { PoolClient } from 'pg';
 
-import type { IdentityFilter, IdentityRecord, IdentityStore, KycEvent } from './identityStore.ts';
+import type {
+  IdentityFilter,
+  IdentityRecord,
+  IdentityStore,
+  KycEvent,
+  OnchainRegistration,
+  OnchainStatus,
+} from './identityStore.ts';
 
 type IdentityRow = {
   wallet_address: string;
@@ -8,6 +15,10 @@ type IdentityRow = {
   country_code: number | null;
   kyc_status: IdentityRecord['kycStatus'];
   sumsub_applicant_id: string;
+  onchain_identity: string | null;
+  onchain_status: OnchainStatus;
+  onchain_error: string | null;
+  onchain_attempts: number;
 };
 
 type EventRow = {
@@ -20,7 +31,8 @@ type EventRow = {
   created_at: Date;
 };
 
-const IDENTITY_SELECT = `SELECT u.wallet_address, i.onchainid_address, i.country_code, i.kyc_status, i.sumsub_applicant_id
+const IDENTITY_SELECT = `SELECT u.wallet_address, i.onchainid_address, i.country_code, i.kyc_status, i.sumsub_applicant_id,
+              i.onchain_identity, i.onchain_status, i.onchain_error, i.onchain_attempts
        FROM identities i
        JOIN users u ON u.id = i.user_id`;
 
@@ -32,6 +44,12 @@ function toRecord(row: IdentityRow): IdentityRecord {
     kycStatus: row.kyc_status,
     applicantId: row.sumsub_applicant_id,
     claims: row.kyc_status === 'approved' ? [1, 2] : [],
+    onchain: {
+      status: row.onchain_status,
+      identityAddress: row.onchain_identity,
+      error: row.onchain_error,
+      attempts: row.onchain_attempts,
+    },
   };
 }
 
@@ -111,6 +129,33 @@ export class PgIdentityStore implements IdentityStore {
         ])
       : await this.client.query<IdentityRow>(`${IDENTITY_SELECT} ORDER BY i.created_at`);
     return result.rows.map(toRecord);
+  }
+
+  async listForOnboarding(limit = 20) {
+    const result = await this.client.query<IdentityRow>(
+      `${IDENTITY_SELECT}
+       WHERE i.kyc_status = 'approved' AND i.onchain_status IN ('pending', 'identity_deployed')
+       ORDER BY i.created_at
+       LIMIT $1`,
+      [limit],
+    );
+    return result.rows.map(toRecord);
+  }
+
+  async updateOnchain(walletAddress: string, registration: OnchainRegistration) {
+    await this.client.query(
+      `UPDATE identities i
+       SET onchain_identity = $2, onchain_status = $3, onchain_error = $4, onchain_attempts = $5, onchain_updated_at = now()
+       FROM users u
+       WHERE u.id = i.user_id AND u.wallet_address = $1`,
+      [
+        walletAddress.toLowerCase(),
+        registration.identityAddress?.toLowerCase() ?? null,
+        registration.status,
+        registration.error,
+        registration.attempts,
+      ],
+    );
   }
 
   /** kyc_events is a delivery log. One row per webhook POST, including ignored types. */
