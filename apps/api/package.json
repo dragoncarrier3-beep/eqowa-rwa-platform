@@ -8,7 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "migrate": "tsx src/db/migrate.ts",
-    "test": "tsx --test src/schema.test.ts src/indexer/indexer.test.ts src/kyc/kyc.test.ts src/mint/mint.test.ts src/signer/signer.test.ts src/relayer/relayer.test.ts src/admin/admin.test.ts src/settlement/settlement.test.ts src/simulation/report.test.ts src/assets/assets.test.ts src/indexer/tokenWorker.test.ts src/auth/auth.test.ts src/investor/investor.test.ts src/relayer/approve.test.ts src/relayer/viemSignatures.test.ts src/investor/checkout.test.ts src/kyc/kycToken.test.ts",
+    "test": "tsx --test src/schema.test.ts src/indexer/indexer.test.ts src/kyc/kyc.test.ts src/mint/mint.test.ts src/signer/signer.test.ts src/relayer/relayer.test.ts src/admin/admin.test.ts src/settlement/settlement.test.ts src/simulation/report.test.ts src/assets/assets.test.ts src/indexer/tokenWorker.test.ts src/auth/auth.test.ts src/investor/investor.test.ts src/relayer/approve.test.ts src/relayer/viemSignatures.test.ts src/investor/checkout.test.ts src/kyc/kycToken.test.ts src/kyc/onboardingWorker.test.ts",
     "index": "tsx src/indexer/backfill.ts",
     "worker": "tsx src/settlement/run.ts",
     "simulate": "tsx src/simulation/run.ts",

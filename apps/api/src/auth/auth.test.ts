@@ -235,7 +235,13 @@ test('/investor/me returns KYC status and indexed holding for the signed-in wall
   assert.deepEqual(me.json(), {
     ok: true,
     walletAddress: INVESTOR.address,
-    kyc: { status: 'approved', countryCode: 566, onchainIdAddress: '0x3333333333333333333333333333333333333333' },
+    kyc: {
+      status: 'approved',
+      countryCode: 566,
+      onchainIdAddress: '0x3333333333333333333333333333333333333333',
+      // Approved by Sumsub, not yet registered on-chain by the onboarding worker.
+      registration: 'pending',
+    },
     holding: { balance: (25n * ONE_SHARE).toString(), frozen: false, updatedBlock: 42 },
   } satisfies InvestorMeResponse);
   await app.close();

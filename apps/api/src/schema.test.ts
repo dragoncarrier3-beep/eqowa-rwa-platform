@@ -30,6 +30,7 @@ test('schema defines the application tables', () => {
   assert.match(sql, /resolved_by/);
   assert.match(sql, /resolution TEXT/);
   assert.match(sql, /mint_tx_hash/);
+  assert.match(sql, /onchain_status TEXT NOT NULL DEFAULT 'pending'/);
   assert.doesNotMatch(sql, /UPDATE\s+audit_log/i);
   assert.doesNotMatch(sql, /DELETE\s+FROM\s+audit_log/i);
 });
