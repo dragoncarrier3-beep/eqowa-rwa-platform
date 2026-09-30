@@ -1,5 +1,3 @@
-import type { FastifyReply, FastifyRequest } from 'fastify';
-
 import type { AuditEntry, ExceptionRecord } from '../../../../config/exceptions.ts';
 import type { IdentityRecord, KycEvent } from '../kyc/identityStore.ts';
 
@@ -25,18 +23,6 @@ export function serializeAudit(row: AuditEntry) {
     payload: row.payload,
     createdAt: row.createdAt.toISOString(),
   };
-}
-
-export function adminUnauthorized(request: FastifyRequest, reply: FastifyReply, adminKey: string) {
-  if (!adminKey) {
-    return reply.code(503).send({ ok: false, reason: 'admin_unconfigured' });
-  }
-  const header = request.headers['x-admin-key'];
-  const provided = typeof header === 'string' ? header : '';
-  if (provided !== adminKey) {
-    return reply.code(401).send({ ok: false, reason: 'unauthorized' });
-  }
-  return null;
 }
 
 export function serializeIdentity(row: IdentityRecord) {

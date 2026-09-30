@@ -5,14 +5,10 @@ import { isAddress } from 'ethers';
 import Fastify, { type FastifyRequest } from 'fastify';
 import pg from 'pg';
 
-import {
-  adminUnauthorized,
-  serializeAudit,
-  serializeException,
-  serializeIdentity,
-  serializeKycEvent,
-} from './admin/serialize.ts';
+import { serializeAudit, serializeException, serializeIdentity, serializeKycEvent } from './admin/serialize.ts';
 import type { AssetCatalog, ChainReader } from './assets/catalog.ts';
+import { createAdminGuard, registerAdminAuthRoutes, type AdminAuthConfig } from './auth/adminAuth.ts';
+import { MemoryAdminStore, type AdminStore } from './auth/adminStore.ts';
 import { MemoryConsentStore, type ConsentStore } from './auth/consentStore.ts';
 import { MemoryNonceStore, type NonceStore } from './auth/nonceStore.ts';
 import { readSession, registerAuthRoutes, type AuthConfig } from './auth/routes.ts';
@@ -38,6 +34,7 @@ import type { SyncStateStore } from './settlement/syncState.ts';
 import { createRelayerSigner } from './signer/fromEnv.ts';
 import {
   createAssetCatalogFromEnv,
+  createAdminAuthConfigFromEnv,
   createAuthConfigFromEnv,
   createMintExecutor,
   createOnboardingWorkerFromEnv,
@@ -86,6 +83,11 @@ export type AppDeps = {
   now?: () => Date;
   mint?: MintExecutor;
   adminKey?: string;
+  /** WebAuthn admin sign-in. Unset leaves only the legacy x-admin-key. */
+  adminAuth?: AdminAuthConfig;
+  adminStore?: AdminStore;
+  /** Base of the enrolment links in admin invites. */
+  webOrigin?: string;
   assets?: AssetCatalog;
   /** Investor sign-in. Unset answers 503 on the auth routes. */
   auth?: AuthConfig;
@@ -127,6 +129,8 @@ export function buildApp(deps: AppDeps = {}) {
   const syncStore = deps.syncStore;
   const tokenAddress = deps.tokenAddress ?? process.env.TOKEN_ADDRESS ?? '';
   const consents = deps.consents ?? new MemoryConsentStore();
+  const adminStore = deps.adminStore ?? new MemoryAdminStore();
+  const guard = createAdminGuard({ adminAuth: deps.adminAuth, adminStore, adminKey, now });
 
   registerAuthRoutes(app, {
     auth: deps.auth,
@@ -135,6 +139,16 @@ export function buildApp(deps: AppDeps = {}) {
     identities: store,
     ledger,
     tokenAddress,
+    now,
+  });
+
+  registerAdminAuthRoutes(app, {
+    adminAuth: deps.adminAuth,
+    adminStore,
+    nonces: deps.nonces ?? new MemoryNonceStore(),
+    guard,
+    audit: (entry) => mintStore.appendAudit({ ...entry, now: now() }),
+    webOrigin: deps.webOrigin ?? process.env.WEB_ORIGIN ?? 'http://localhost:3000',
     now,
   });
 
@@ -410,9 +424,9 @@ export function buildApp(deps: AppDeps = {}) {
   });
 
   app.get('/admin/exceptions', async (request, reply) => {
-    const denied = adminUnauthorized(request, reply, adminKey);
-    if (denied) {
-      return denied;
+    const admin = await guard.authorize(request, reply, 'dashboard:view');
+    if (!admin) {
+      return reply;
     }
     const query = request.query as Record<string, unknown>;
     const status = query.status === 'open' || query.status === 'resolved' ? query.status : undefined;
@@ -422,14 +436,13 @@ export function buildApp(deps: AppDeps = {}) {
   });
 
   app.post('/admin/exceptions/:id/resolve', async (request, reply) => {
-    const denied = adminUnauthorized(request, reply, adminKey);
-    if (denied) {
-      return denied;
+    const admin = await guard.authorize(request, reply, 'exceptions:resolve');
+    if (!admin) {
+      return reply;
     }
     const params = request.params as { id: string };
     const body = asRecord(request.body);
-    const actorHeader = request.headers['x-admin-actor'];
-    const actor = typeof actorHeader === 'string' && actorHeader.trim() ? actorHeader.trim() : 'admin';
+    const actor = admin.actor;
     const result = await mintStore.resolveException(params.id, {
       actor,
       resolution: asString(body.resolution),
@@ -448,14 +461,13 @@ export function buildApp(deps: AppDeps = {}) {
   });
 
   app.post('/admin/mint/:intentId/approve', async (request, reply) => {
-    const denied = adminUnauthorized(request, reply, adminKey);
-    if (denied) {
-      return denied;
+    const admin = await guard.authorize(request, reply, 'mint:approve');
+    if (!admin) {
+      return reply;
     }
     const params = request.params as { intentId: string };
     const body = asRecord(request.body);
-    const actorHeader = request.headers['x-admin-actor'];
-    const actor = typeof actorHeader === 'string' && actorHeader.trim() ? actorHeader.trim() : 'admin';
+    const actor = admin.actor;
     const result = await approveSafeMint({
       intentId: params.intentId,
       store: mintStore,
@@ -471,9 +483,9 @@ export function buildApp(deps: AppDeps = {}) {
   });
 
   app.get('/admin/kyc', async (request, reply) => {
-    const denied = adminUnauthorized(request, reply, adminKey);
-    if (denied) {
-      return denied;
+    const admin = await guard.authorize(request, reply, 'investors:view');
+    if (!admin) {
+      return reply;
     }
     const query = request.query as Record<string, unknown>;
     const status = KYC_STATUSES.find((value) => value === query.status);
@@ -482,9 +494,9 @@ export function buildApp(deps: AppDeps = {}) {
   });
 
   app.get('/admin/kyc/:applicantId', async (request, reply) => {
-    const denied = adminUnauthorized(request, reply, adminKey);
-    if (denied) {
-      return denied;
+    const admin = await guard.authorize(request, reply, 'investors:view');
+    if (!admin) {
+      return reply;
     }
     const params = request.params as { applicantId: string };
     const [identity, events] = await Promise.all([
@@ -502,9 +514,9 @@ export function buildApp(deps: AppDeps = {}) {
   });
 
   app.get('/admin/audit', async (request, reply) => {
-    const denied = adminUnauthorized(request, reply, adminKey);
-    if (denied) {
-      return denied;
+    const admin = await guard.authorize(request, reply, 'audit:view');
+    if (!admin) {
+      return reply;
     }
     const query = request.query as Record<string, unknown>;
     const limit = typeof query.limit === 'string' ? Number(query.limit) : 50;
@@ -513,9 +525,9 @@ export function buildApp(deps: AppDeps = {}) {
   });
 
   app.get('/admin/holders', async (request, reply) => {
-    const denied = adminUnauthorized(request, reply, adminKey);
-    if (denied) {
-      return denied;
+    const admin = await guard.authorize(request, reply, 'investors:view');
+    if (!admin) {
+      return reply;
     }
     if (!ledger || !syncStore || !isAddress(tokenAddress)) {
       return reply.code(503).send({ ok: false, reason: 'holders_unavailable' });
@@ -607,12 +619,18 @@ async function main() {
   }
 
   const auth = createAuthConfigFromEnv();
+  const adminAuth = createAdminAuthConfigFromEnv();
+  if ('disabled' in adminAuth) {
+    console.warn(`Admin WebAuthn sign-in off: ${adminAuth.disabled}`);
+  }
   if ('disabled' in auth) {
     console.warn(`Investor sign-in off: ${auth.disabled}`);
   }
 
   const app = buildApp({
     auth: 'auth' in auth ? auth.auth : undefined,
+    adminAuth: 'adminAuth' in adminAuth ? adminAuth.adminAuth : undefined,
+    adminStore: stores.admins,
     nonces: stores.nonces,
     consents: stores.consents,
     chain: rpcProvider(),
