@@ -200,3 +200,30 @@ export type CheckoutResponse = {
 
 /** Short-lived Sumsub WebSDK token for the signed-in wallet. */
 export type KycTokenResponse = { ok: true; token: string; levelName: string };
+
+export type AdminRoleName = 'ceo' | 'operations' | 'compliance';
+
+export type AdminDto = {
+  id: string;
+  email: string;
+  name: string;
+  role: AdminRoleName;
+  status: 'invited' | 'active' | 'disabled';
+};
+
+export type AdminCredentialDto = { id: string; label: string; createdAt: string; lastUsedAt: string | null };
+
+/** The signed-in admin, what the role allows, and the enrolled keys. */
+export type AdminMeResponse = {
+  ok: true;
+  admin: AdminDto;
+  permissions: string[];
+  credentials: AdminCredentialDto[];
+  /** Policy is two keys per admin, so a lost key is not a lock-out. */
+  needsSecondKey: boolean;
+};
+
+export type InviteInspectResponse = { ok: true; admin: AdminDto; expiresAt: string };
+export type TeamResponse = { ok: true; team: Array<AdminDto & { credentialCount: number }> };
+/** The invite link is shown once; only its hash is stored. */
+export type TeamInviteResponse = { ok: true; admin: AdminDto; inviteUrl: string; expiresAt: string };

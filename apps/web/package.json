@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@simplewebauthn/browser": "^14.0.0",
     "@sumsub/websdk": "^2.9.0",
     "@tanstack/react-query": "^5.104.0",
     "@walletconnect/ethereum-provider": "^2.25.0",

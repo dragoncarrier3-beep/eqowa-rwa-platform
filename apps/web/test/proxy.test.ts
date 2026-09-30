@@ -53,16 +53,28 @@ describe('API proxy', () => {
     expect((await response.json()).reason).toBe('unauthenticated');
   });
 
-  it.each([['admin', 'holders'], ['webhooks', 'sumsub'], ['health'], ['rpc']])(
-    'does not expose /%s to browsers',
-    async (...path) => {
-      const fetchMock = vi.fn();
-      vi.stubGlobal('fetch', fetchMock);
-      const response = await proxyToApi(new Request('https://app.eqowa.com/api/x'), path, API);
-      expect(response.status).toBe(404);
-      expect(fetchMock).not.toHaveBeenCalled();
-    },
-  );
+  it.each([['webhooks', 'sumsub'], ['health'], ['rpc']])('does not expose /%s to browsers', async (...path) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const response = await proxyToApi(new Request('https://app.eqowa.com/api/x'), path, API);
+    expect(response.status).toBe(404);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('forwards admin routes with the session cookie but never the legacy admin key', async () => {
+    const fetchMock = vi.fn<(target: URL, init: RequestInit) => Promise<Response>>(async () => upstream({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const request = new Request('https://app.eqowa.com/api/admin/team', {
+      headers: { cookie: 'eqowa_admin=abc', 'x-admin-key': 'stolen-key' },
+    });
+    const response = await proxyToApi(request, ['admin', 'team'], API);
+    expect(response.status).toBe(200);
+    const [target, init] = fetchMock.mock.calls[0];
+    expect(String(target)).toBe('http://api.internal:3001/admin/team');
+    const sent = init.headers as Headers;
+    expect(sent.get('cookie')).toBe('eqowa_admin=abc');
+    expect(sent.get('x-admin-key')).toBeNull();
+  });
 
   it('refuses path tricks', async () => {
     const response = await proxyToApi(new Request('https://app.eqowa.com/api/x'), ['auth', '..', 'admin'], API);
