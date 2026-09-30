@@ -107,3 +107,61 @@ export function serializeCookie(name: string, value: string, options: CookieOpti
   }
   return parts.join('; ');
 }
+
+/** Admin sessions last one working day; after that the key is needed again. */
+export const ADMIN_SESSION_SECONDS = 12 * 60 * 60;
+
+export type AdminSession = {
+  kind: 'admin';
+  adminId: string;
+  issuedAt: Date;
+  expiresAt: Date;
+};
+
+/**
+ * Same HS256 format as investor sessions, with kind 'admin'. Role and status
+ * are deliberately not in the token: the guard reads them from the store on
+ * every request, so disabling an admin or changing a role applies at once.
+ */
+export function signAdminSession(session: AdminSession, secret: string): string {
+  const payload = base64url(
+    JSON.stringify({
+      sub: session.adminId,
+      kind: 'admin',
+      iat: Math.floor(session.issuedAt.getTime() / 1000),
+      exp: Math.floor(session.expiresAt.getTime() / 1000),
+    }),
+  );
+  const body = `${HEADER}.${payload}`;
+  return `${body}.${base64url(hmac(secret, body))}`;
+}
+
+export function verifyAdminSession(token: string, secret: string, now: Date): AdminSession | null {
+  const parts = token.split('.');
+  if (parts.length !== 3 || parts[0] !== HEADER) {
+    return null;
+  }
+  const expected = hmac(secret, `${parts[0]}.${parts[1]}`);
+  const given = Buffer.from(parts[2], 'base64url');
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
+    return null;
+  }
+  let claims: Record<string, unknown>;
+  try {
+    claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+  if (claims.kind !== 'admin' || typeof claims.sub !== 'string') {
+    return null;
+  }
+  if (typeof claims.iat !== 'number' || typeof claims.exp !== 'number' || claims.exp * 1000 <= now.getTime()) {
+    return null;
+  }
+  return {
+    kind: 'admin',
+    adminId: claims.sub,
+    issuedAt: new Date(claims.iat * 1000),
+    expiresAt: new Date(claims.exp * 1000),
+  };
+}

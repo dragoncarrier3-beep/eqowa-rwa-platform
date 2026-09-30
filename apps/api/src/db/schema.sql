@@ -164,6 +164,37 @@ CREATE TABLE IF NOT EXISTS investor_consents (
   accepted_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Admins sign in with WebAuthn only (YubiKeys; platform passkeys while testing).
+CREATE TABLE IF NOT EXISTS admin_users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('ceo', 'operations', 'compliance')),
+  status TEXT NOT NULL DEFAULT 'invited' CHECK (status IN ('invited', 'active', 'disabled')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Single-use enrolment links. Only the sha256 of the token is stored.
+CREATE TABLE IF NOT EXISTS admin_invites (
+  token_hash TEXT PRIMARY KEY,
+  admin_id UUID NOT NULL REFERENCES admin_users (id),
+  expires_at TIMESTAMPTZ NOT NULL,
+  consumed_at TIMESTAMPTZ,
+  created_by TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS admin_credentials (
+  credential_id TEXT PRIMARY KEY,
+  admin_id UUID NOT NULL REFERENCES admin_users (id),
+  public_key BYTEA NOT NULL,
+  counter BIGINT NOT NULL DEFAULT 0,
+  transports TEXT[],
+  label TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_used_at TIMESTAMPTZ
+);
+
 CREATE INDEX IF NOT EXISTS transactions_block_number_idx ON transactions (block_number);
 CREATE INDEX IF NOT EXISTS exceptions_status_idx ON exceptions (status);
 CREATE INDEX IF NOT EXISTS mint_intents_status_idx ON mint_intents (status);

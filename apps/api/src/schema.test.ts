@@ -18,6 +18,9 @@ const TABLES = [
   'balances',
   'auth_nonces',
   'investor_consents',
+  'admin_users',
+  'admin_invites',
+  'admin_credentials',
 ];
 
 test('schema defines the application tables', () => {

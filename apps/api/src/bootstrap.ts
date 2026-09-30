@@ -4,6 +4,8 @@ import dotenv from 'dotenv';
 import { JsonRpcProvider, NonceManager, Wallet, isAddress, type Signer } from 'ethers';
 import pg from 'pg';
 
+import type { AdminAuthConfig } from './auth/adminAuth.ts';
+import { MemoryAdminStore, PgAdminStore, type AdminStore } from './auth/adminStore.ts';
 import { MemoryConsentStore, PgConsentStore, type ConsentStore } from './auth/consentStore.ts';
 import { MemoryNonceStore, PgNonceStore, type NonceStore } from './auth/nonceStore.ts';
 import type { AuthConfig } from './auth/routes.ts';
@@ -46,6 +48,7 @@ export type Stores = {
   ledger: TokenLedgerStore;
   nonces: NonceStore;
   consents: ConsentStore;
+  admins: AdminStore;
   pool?: pg.Pool;
 };
 
@@ -59,6 +62,7 @@ export function createStores(env: Env = process.env): Stores {
       ledger: new MemoryTokenLedger(),
       nonces: new MemoryNonceStore(),
       consents: new MemoryConsentStore(),
+      admins: new MemoryAdminStore(),
     };
   }
   const pool = new pg.Pool({ connectionString: env.DATABASE_URL });
@@ -69,6 +73,7 @@ export function createStores(env: Env = process.env): Stores {
     ledger: new PgTokenLedger(pool),
     nonces: new PgNonceStore(pool),
     consents: new PgConsentStore(pool),
+    admins: new PgAdminStore(pool),
     pool,
   };
 }
@@ -317,5 +322,32 @@ export function createOnboardingWorkerFromEnv(
       onboard: (input) => onboardInvestor({ ...input, contracts, agent, claimSigner }),
       pollMs: positiveInt(env.ONBOARDING_POLL_MS, 15_000),
     }),
+  };
+}
+
+/**
+ * Admin WebAuthn settings, or why admin sign-in is off. The relying party is
+ * the host the web app is served on: keys enrolled on localhost do not work on
+ * app.eqowa.com, so real YubiKeys are enrolled on the live host.
+ */
+export function createAdminAuthConfigFromEnv(
+  env: Env = process.env,
+): { adminAuth: AdminAuthConfig } | { disabled: string } {
+  const secret = env.AUTH_SECRET ?? '';
+  if (secret.length < MIN_SECRET_LENGTH) {
+    return { disabled: `set AUTH_SECRET to at least ${MIN_SECRET_LENGTH} random characters` };
+  }
+  if (!env.WEBAUTHN_RP_ID || !env.WEBAUTHN_ORIGIN) {
+    return { disabled: 'set WEBAUTHN_RP_ID and WEBAUTHN_ORIGIN to the web app host and origin' };
+  }
+  return {
+    adminAuth: {
+      secret,
+      cookieName: env.ADMIN_COOKIE_NAME || 'eqowa_admin',
+      secureCookie: env.AUTH_COOKIE_SECURE !== 'false',
+      rpID: env.WEBAUTHN_RP_ID,
+      rpName: env.WEBAUTHN_RP_NAME || 'EQOWA Admin',
+      origin: env.WEBAUTHN_ORIGIN,
+    },
   };
 }
