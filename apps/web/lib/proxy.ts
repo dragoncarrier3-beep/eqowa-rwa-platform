@@ -1,11 +1,13 @@
 /**
  * Same-origin gateway from the browser to the API. The session cookie is set
  * on the web origin, so it stays HttpOnly and SameSite=Lax without CORS.
- * Only the route groups the portal uses are forwarded: webhooks, the RPC
- * proxy and the legacy x-admin-key routes stay unreachable from browsers.
+ * Only the route groups the portal uses are forwarded: webhooks and the RPC
+ * proxy stay unreachable from browsers. Admin routes are forwarded with the
+ * admin session cookie only: the legacy x-admin-key header is never passed on,
+ * so a browser cannot use it.
  */
 
-export const PROXIED_PREFIXES = ['auth', 'investor', 'assets', 'mint', 'relayer'] as const;
+export const PROXIED_PREFIXES = ['auth', 'investor', 'assets', 'mint', 'relayer', 'admin'] as const;
 
 const REQUEST_HEADERS = ['cookie', 'content-type', 'accept', 'user-agent'];
 const RESPONSE_HEADERS = ['content-type', 'cache-control'];
