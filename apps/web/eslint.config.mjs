@@ -18,7 +18,7 @@ export default defineConfig([
           paths: [{ name: 'ethers', message: 'The web app uses viem. ethers is not installed here.' }],
           patterns: [
             {
-              regex: '^@config/(agentMint|claims|errors|escrowEvents|forwarder|mint|onboarding|relayer|tokenEvents)$',
+              regex: '^@config/(agentMint|claims|errors|escrowEvents|forwarder|mint|onboarding|relayer|complianceTx|tokenControls|tokenEvents)$',
               message:
                 'This config file imports ethers, which the web app does not install. Use an ethers-free config file.',
             },

@@ -227,3 +227,88 @@ export type InviteInspectResponse = { ok: true; admin: AdminDto; expiresAt: stri
 export type TeamResponse = { ok: true; team: Array<AdminDto & { credentialCount: number }> };
 /** The invite link is shown once; only its hash is stored. */
 export type TeamInviteResponse = { ok: true; admin: AdminDto; inviteUrl: string; expiresAt: string };
+
+/** Counts behind the admin overview. */
+export type AdminDashboardResponse = {
+  ok: true;
+  quotes: { total: number; byStatus: Record<MintQuoteStatus, number> };
+  /** Mints of 100,000 USDT or more waiting for the Safe signers. */
+  awaitingSafeApproval: number;
+  openExceptions: number;
+  kyc: {
+    total: number;
+    approved: number;
+    pending: number;
+    rejected: number;
+    blockedCountry: number;
+    registered: number;
+    registrationFailed: number;
+  };
+  /** Null when the token indexer is not configured. */
+  holders: { holderWallets: number; frozenWallets: number; totalSupply: string; indexedBlock: number | null } | null;
+};
+
+export type AdminQuoteDto = InvestorQuoteDto & { wallet: string };
+export type AdminQuotesResponse = { ok: true; currentBlock: number | null; quotes: AdminQuoteDto[] };
+
+/** One wallet: KYC from Sumsub, registration on-chain, holding from the indexer. */
+export type AdminInvestorDto = {
+  walletAddress: string;
+  /** Null for a wallet that holds tokens without a KYC record (for example a test mint). */
+  kycStatus: KycStatus | null;
+  countryCode: number | null;
+  registration: 'pending' | 'identity_deployed' | 'registered' | 'failed' | null;
+  identityAddress: string | null;
+  registrationError: string | null;
+  balance: string;
+  frozen: boolean;
+  updatedBlock: number | null;
+};
+export type AdminInvestorsResponse = { ok: true; investors: AdminInvestorDto[] };
+export type FreezeResponse = { ok: true; changed: boolean; txHash: string | null };
+
+/** Live compliance rules, read at `blockNumber`. Share figures are whole shares. */
+export type AdminComplianceResponse = {
+  ok: true;
+  blockNumber: number;
+  compliance: string;
+  /** The Safe that owns compliance and must sign every rule change. */
+  safe: string | null;
+  paused: boolean;
+  /** Null for a module whose address is not configured. */
+  rules: {
+    maxBalanceShares: string | null;
+    maxHolderCount: string | null;
+    holderCount: string | null;
+    dailyMintCapShares: string | null;
+    remainingMintShares: string | null;
+    lockupDays: string | null;
+  };
+  countryModule: string | null;
+};
+
+export type TokenActionResponse = { ok: true; changed: boolean; txHash: string | null };
+/** A Safe Transaction Builder batch file, to import in the Safe app. */
+export type CompliancePrepareResponse = { ok: true; description: string; file: Record<string, unknown> };
+
+/** A document for investors, for example the offering memorandum. */
+export type DocumentDto = {
+  id: string;
+  title: string;
+  /** public: anyone. kyc: signed-in investors with approved KYC. */
+  visibility: 'public' | 'kyc';
+  /** draft until a PDF is uploaded; only ready documents are listed to investors. */
+  status: 'draft' | 'ready';
+  filename: string | null;
+  size: number | null;
+  /** Fingerprint of the file, so an investor can check a copy is unaltered. */
+  sha256: string | null;
+  updatedAt: string;
+};
+export type AdminDocumentsResponse = { ok: true; documents: DocumentDto[] };
+export type PublicDocumentsResponse = {
+  ok: true;
+  /** The visitor is a signed-in investor with approved KYC. */
+  verified: boolean;
+  documents: Array<DocumentDto & { available: boolean }>;
+};

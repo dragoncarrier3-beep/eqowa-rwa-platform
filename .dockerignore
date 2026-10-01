@@ -1,0 +1,21 @@
+# Keep secrets, local state and build output out of the Docker build context.
+**/node_modules
+**/.next
+**/*.tsbuildinfo
+artifacts
+cache
+typechain-types
+coverage
+coverage.json
+reports
+deployments/*.json
+data
+deploy/state
+.env
+**/.env
+**/.env.*
+!**/.env.example
+.git
+.github
+*.pdf
+**/*.tmp.*

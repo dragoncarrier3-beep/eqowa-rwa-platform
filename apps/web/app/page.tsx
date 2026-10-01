@@ -21,7 +21,7 @@ export default async function HomePage() {
   return (
     <div className="space-y-8">
       <section className="space-y-3">
-        <Badge tone="primary">Milestone 4 in progress</Badge>
+        <Badge tone="primary">ERC-3643 security token</Badge>
         <h1 className="text-3xl font-semibold tracking-tight">{asset?.name ?? TOKEN_NAME}</h1>
         <p className="max-w-2xl text-text-muted">
           Tokenised shares issued on Polygon under ERC-3643. Every transfer is checked on-chain against the identity
@@ -100,7 +100,7 @@ export default async function HomePage() {
             <Link href="/portfolio" className="text-[#8fc1ef] hover:underline">
               portfolio
             </Link>
-            . KYC and documents follow in the next slices.
+            . Verify your identity on the Verify page and read the offering documents under Documents.
           </CardContent>
         </Card>
         <Card>
@@ -109,9 +109,9 @@ export default async function HomePage() {
             <CardDescription>YubiKey login, exception queue, approvals, audit log, token controls.</CardDescription>
           </CardHeader>
           <CardContent className="text-sm text-text-muted">
-            Coming in the next slices:{' '}
+            For the EQOWA team.{' '}
             <Link href="/admin" className="text-[#8fc1ef] hover:underline">
-              admin
+              Sign in with your security key
             </Link>
             .
           </CardContent>

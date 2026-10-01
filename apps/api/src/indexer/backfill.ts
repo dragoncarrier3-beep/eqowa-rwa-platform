@@ -18,7 +18,7 @@ dotenv.config();
  * running both is safe (events are stored once).
  */
 async function main() {
-  const rpc = process.env.AMOY_RPC_URL ?? 'http://127.0.0.1:8545';
+  const rpc = process.env.RPC_URL || process.env.AMOY_RPC_URL || 'http://127.0.0.1:8545';
   const tokenAddress = process.env.TOKEN_ADDRESS;
   const databaseUrl = process.env.DATABASE_URL;
 

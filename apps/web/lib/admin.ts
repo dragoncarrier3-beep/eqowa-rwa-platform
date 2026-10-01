@@ -9,7 +9,11 @@ export const fetchAdminMe = () => load<AdminMeResponse>('/auth/admin/me');
 export const fetchTeam = () => load<TeamResponse>('/admin/team');
 
 export class AdminError extends Error {
-  constructor(readonly reason: string) {
+  /** `detail` carries the chain's own words when a transaction was refused. */
+  constructor(
+    readonly reason: string,
+    readonly detail?: string,
+  ) {
     super(reason);
   }
 }
@@ -74,12 +78,34 @@ const REASON_TEXT: Record<string, string> = {
   invalid_email: 'Enter a valid email address.',
   invalid_role: 'Choose a role.',
   forbidden: 'Your role does not allow this.',
+  reason_required: 'Give a reason; it is kept in the audit log.',
+  pdf_required: 'Only PDF files can be published.',
+  ticket_open: 'A recovery for this admin is already open.',
+  invalid_safe_tx: 'Paste the 66-character Safe transaction hash (0x...).',
+  self_approval: 'You cannot approve the reset of your own keys.',
+  requester_approval: 'The person who opened a recovery cannot also approve it.',
+  already_resolved: 'This recovery was already decided.',
+  unknown_admin: 'That admin was not found.',
+  not_open: 'This recovery was already decided.',
+  storage_unavailable: 'Document storage is not configured on this environment.',
+  invalid_document: 'Give the document a title of up to 120 characters.',
+  unknown_document: 'This document no longer exists.',
+  invalid_amount: 'Enter a whole number of shares.',
+  invalid_address: 'Enter a valid wallet address.',
+  invalid_change: 'Check the value; it is outside what the rules allow.',
+  token_controls_unavailable: 'Token controls are not configured on this environment.',
+  module_unconfigured: 'That compliance module is not configured on this environment.',
+  chain_unavailable: 'The blockchain could not be read just now.',
+  chain_error: 'The blockchain refused the transaction.',
   admin_auth_unconfigured: 'Admin sign-in is not configured on this environment.',
   api_unreachable: 'The platform is not reachable. Please try again shortly.',
 };
 
 export function adminErrorText(error: unknown): string {
   if (error instanceof AdminError) {
+    if (error.reason === 'chain_error' && error.detail) {
+      return `The blockchain refused: ${error.detail}`;
+    }
     return REASON_TEXT[error.reason] ?? 'Something went wrong. Please try again.';
   }
   // The browser throws NotAllowedError when the key prompt is closed or times out.

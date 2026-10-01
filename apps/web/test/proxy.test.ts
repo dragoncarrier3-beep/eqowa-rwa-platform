@@ -32,7 +32,7 @@ describe('API proxy', () => {
     const [target, init] = fetchMock.mock.calls[0];
     expect(String(target)).toBe('http://api.internal:3001/auth/siwe/verify?x=1');
     expect(init.method).toBe('POST');
-    expect(init.body).toBe('{"message":"m"}');
+    expect(new TextDecoder().decode(init.body as ArrayBuffer)).toBe('{"message":"m"}');
     const sent = init.headers as Headers;
     expect(sent.get('cookie')).toBe('a=b');
     // Only the listed headers pass through.

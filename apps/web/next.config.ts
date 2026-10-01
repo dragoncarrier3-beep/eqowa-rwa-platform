@@ -11,6 +11,8 @@ const repoRoot = path.resolve(process.cwd(), '../..');
 // indexing briefly holds a new file (EBUSY / os error 32).
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // No Next.js badge in the corner during `npm run dev`; builds never show it.
+  devIndicators: false,
   // Docker image for the shared test chain copies only the standalone output.
   output: 'standalone',
   outputFileTracingRoot: repoRoot,

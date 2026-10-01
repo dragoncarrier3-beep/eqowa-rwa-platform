@@ -7,10 +7,10 @@
  * so a browser cannot use it.
  */
 
-export const PROXIED_PREFIXES = ['auth', 'investor', 'assets', 'mint', 'relayer', 'admin'] as const;
+export const PROXIED_PREFIXES = ['auth', 'investor', 'assets', 'mint', 'relayer', 'admin', 'documents'] as const;
 
-const REQUEST_HEADERS = ['cookie', 'content-type', 'accept', 'user-agent'];
-const RESPONSE_HEADERS = ['content-type', 'cache-control'];
+const REQUEST_HEADERS = ['cookie', 'content-type', 'accept', 'user-agent', 'x-filename'];
+const RESPONSE_HEADERS = ['content-type', 'cache-control', 'content-disposition', 'x-content-type-options'];
 
 function json(status: number, reason: string) {
   return Response.json({ ok: false, reason }, { status });
@@ -49,7 +49,8 @@ export async function proxyToApi(request: Request, path: string[], apiBase: stri
     upstream = await fetch(target, {
       method: request.method,
       headers,
-      body: hasBody ? await request.text() : undefined,
+      // Bytes, not text: document uploads are binary PDFs.
+      body: hasBody ? await request.arrayBuffer() : undefined,
       cache: 'no-store',
       redirect: 'manual',
     });

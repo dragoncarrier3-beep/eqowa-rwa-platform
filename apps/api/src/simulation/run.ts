@@ -20,8 +20,8 @@ export async function simulate(network: SimNetwork) {
 function networkArg(): SimNetwork {
   const index = process.argv.indexOf('--network');
   const value = index === -1 ? 'localhost' : process.argv[index + 1];
-  if (value !== 'localhost' && value !== 'amoy') {
-    throw new Error('--network must be localhost or amoy');
+  if (value !== 'localhost' && value !== 'shared' && value !== 'amoy') {
+    throw new Error('--network must be localhost, shared or amoy');
   }
   return value;
 }

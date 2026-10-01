@@ -21,6 +21,8 @@ const TABLES = [
   'admin_users',
   'admin_invites',
   'admin_credentials',
+  'documents',
+  'admin_recoveries',
 ];
 
 test('schema defines the application tables', () => {

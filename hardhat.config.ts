@@ -8,6 +8,12 @@ dotenv.config();
 
 const AMOY_RPC_URL = process.env.AMOY_RPC_URL ?? 'https://rpc-amoy.polygon.technology';
 const DEPLOYER_PRIVATE_KEY = process.env.DEPLOYER_PRIVATE_KEY ?? '';
+// Mainnet has its own deployer key, so the testnet key can never deploy there.
+const POLYGON_RPC_URL = process.env.POLYGON_RPC_URL ?? '';
+const POLYGON_DEPLOYER_PRIVATE_KEY = process.env.POLYGON_DEPLOYER_PRIVATE_KEY ?? '';
+// The Anvil test chain on the server (deploy/README.md). Like localhost, it
+// sends from the node's own unlocked test accounts, which are Hardhat's.
+const SHARED_RPC_URL = process.env.SHARED_RPC_URL || 'http://127.0.0.1:8545';
 
 const config: HardhatUserConfig = {
   solidity: {
@@ -32,11 +38,23 @@ const config: HardhatUserConfig = {
       // deploy off a spam-inflated eth_gasPrice.
       gasPrice: Number(AMOY_GAS_PRICE_WEI),
     },
+    shared: {
+      url: SHARED_RPC_URL,
+      chainId: 31337,
+      timeout: 120_000,
+    },
+    // Fees come from the provider (EIP-1559); nothing is pinned on mainnet.
+    polygon: {
+      url: POLYGON_RPC_URL,
+      chainId: 137,
+      accounts: POLYGON_DEPLOYER_PRIVATE_KEY ? [POLYGON_DEPLOYER_PRIVATE_KEY] : [],
+    },
   },
   etherscan: {
     apiKey: {
       amoy: process.env.POLYGONSCAN_API_KEY ?? '',
       polygonAmoy: process.env.POLYGONSCAN_API_KEY ?? '',
+      polygon: process.env.POLYGONSCAN_API_KEY ?? '',
     },
     customChains: [
       {

@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import { ethers } from 'hardhat';
 
 import { SETTLEMENT_DEPLOY_GAS_ESTIMATE, requiredWei } from '../../scripts/lib/amoyPreflight';
-import { deploySettlementContracts } from '../../scripts/lib/deploySettlementContracts';
+import { deploySettlementContracts, deploySettlementForUsdt } from '../../scripts/lib/deploySettlementContracts';
 import { withSettlement, type EqowaDeployment } from '../../scripts/lib/deploymentFile';
 
 async function totalGasUsed(contracts: { deploymentTransaction(): { wait(): Promise<unknown> } | null }[]) {
@@ -39,6 +39,22 @@ describe('settlement deploy', () => {
     // Estimate should track reality, not hide a regression behind a large margin.
     expect(SETTLEMENT_DEPLOY_GAS_ESTIMATE - used).to.be.lessThan(300_000n);
     expect(requiredWei(SETTLEMENT_DEPLOY_GAS_ESTIMATE)).to.be.lessThan(ethers.parseEther('0.2'));
+  });
+
+  it('binds the escrow to an existing USDT on mainnet and refuses an address without code', async () => {
+    const [deployer, safe, nobody] = await ethers.getSigners();
+    const native = await ethers.deployContract('MockUSDT', [], deployer);
+    const usdtAddress = await native.getAddress();
+    const { escrow, forwarder, record } = await deploySettlementForUsdt({ deployer, owner: safe.address, usdtAddress });
+
+    expect(await escrow.USDT()).to.equal(usdtAddress);
+    expect(await escrow.owner()).to.equal(safe.address);
+    expect(await escrow.isTrustedForwarder(await forwarder.getAddress())).to.equal(true);
+    expect(record.usdt).to.equal(usdtAddress);
+
+    await expect(
+      deploySettlementForUsdt({ deployer, owner: safe.address, usdtAddress: nobody.address }),
+    ).to.be.rejectedWith('has no code');
   });
 
   it('refuses to replace an existing settlement unless forced', () => {

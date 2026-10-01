@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Image from 'next/image';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 
@@ -18,6 +19,7 @@ const NAV = [
   { href: '/kyc', label: 'Verify' },
   { href: '/buy', label: 'Buy' },
   { href: '/portfolio', label: 'Portfolio' },
+  { href: '/documents', label: 'Documents' },
   { href: '/admin', label: 'Admin' },
   { href: '/design', label: 'Design' },
 ];
@@ -30,7 +32,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <header className="border-b border-border bg-surface/80 backdrop-blur">
             <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
               <Link href="/" className="flex items-center gap-3">
-                <span className="font-mono text-sm font-semibold tracking-[0.2em] text-text">EQOWA</span>
+                {/* Eqowa's logo with the navy wordmark turned white for the dark header. */}
+                <Image src="/brand/eqowa-logo-dark.png" alt="EQOWA" width={127} height={40} priority />
                 <Badge tone="live">Testnet</Badge>
               </Link>
               <div className="flex items-center gap-3">

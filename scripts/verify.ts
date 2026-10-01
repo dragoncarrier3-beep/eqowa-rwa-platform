@@ -22,8 +22,8 @@ async function verifyOne(name: string, address: string, contract: string, args: 
 }
 
 async function main() {
-  if (network.name !== 'amoy') {
-    throw new Error('Run with --network amoy');
+  if (network.name !== 'amoy' && network.name !== 'polygon') {
+    throw new Error('Run with --network amoy or --network polygon');
   }
 
   if (!process.env.POLYGONSCAN_API_KEY) {
@@ -34,7 +34,7 @@ async function main() {
   const targets = verificationTargets(deployment);
   const failures: string[] = [];
 
-  console.log(`Verifying ${targets.length} contracts on Polygonscan Amoy`);
+  console.log(`Verifying ${targets.length} contracts on Polygonscan ${network.name === 'amoy' ? 'Amoy' : 'mainnet'}`);
 
   for (const target of targets) {
     try {

@@ -6,7 +6,16 @@ import pg from 'pg';
 
 import type { AdminAuthConfig } from './auth/adminAuth.ts';
 import { MemoryAdminStore, PgAdminStore, type AdminStore } from './auth/adminStore.ts';
+import { MemoryRecoveryStore, PgRecoveryStore, type RecoveryStore } from './auth/recoveryStore.ts';
 import { MemoryConsentStore, PgConsentStore, type ConsentStore } from './auth/consentStore.ts';
+import { S3Storage } from './documents/s3Storage.ts';
+import {
+  DiskStorage,
+  MemoryDocumentStore,
+  PgDocumentStore,
+  type DocumentStore,
+  type FileStorage,
+} from './documents/store.ts';
 import { MemoryNonceStore, PgNonceStore, type NonceStore } from './auth/nonceStore.ts';
 import type { AuthConfig } from './auth/routes.ts';
 import { MIN_SECRET_LENGTH } from './auth/session.ts';
@@ -29,15 +38,23 @@ import { createTokenMintExecutor } from './signer/executeMint.ts';
 
 type Env = NodeJS.ProcessEnv;
 
-/** Repo-root .env, then apps/api/.env, then the working directory. */
+/**
+ * ENV_FILE first (the shared test chain's generated addresses), then the
+ * repo-root .env, apps/api/.env and the working directory. Earlier files and
+ * the real environment win.
+ */
 export function loadEnv() {
+  if (process.env.ENV_FILE) {
+    dotenv.config({ path: process.env.ENV_FILE });
+  }
   dotenv.config({ path: path.resolve(import.meta.dirname, '../../../.env') });
   dotenv.config({ path: path.resolve(process.cwd(), '../.env') });
   dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 }
 
+/** RPC_URL names the chain on any network; AMOY_RPC_URL is the older name, still read. */
 export function rpcProvider(env: Env = process.env) {
-  const url = env.AMOY_RPC_URL;
+  const url = env.RPC_URL || env.AMOY_RPC_URL;
   return url ? new JsonRpcProvider(url) : undefined;
 }
 
@@ -49,6 +66,8 @@ export type Stores = {
   nonces: NonceStore;
   consents: ConsentStore;
   admins: AdminStore;
+  recoveries: RecoveryStore;
+  documents: DocumentStore;
   pool?: pg.Pool;
 };
 
@@ -63,6 +82,8 @@ export function createStores(env: Env = process.env): Stores {
       nonces: new MemoryNonceStore(),
       consents: new MemoryConsentStore(),
       admins: new MemoryAdminStore(),
+      recoveries: new MemoryRecoveryStore(),
+      documents: new MemoryDocumentStore(),
     };
   }
   const pool = new pg.Pool({ connectionString: env.DATABASE_URL });
@@ -74,6 +95,8 @@ export function createStores(env: Env = process.env): Stores {
     nonces: new PgNonceStore(pool),
     consents: new PgConsentStore(pool),
     admins: new PgAdminStore(pool),
+    recoveries: new PgRecoveryStore(pool),
+    documents: new PgDocumentStore(pool),
     pool,
   };
 }
@@ -138,7 +161,10 @@ export function createSettlementWorkerFromEnv(
   }
 
   const provider = rpcProvider(env);
-  const missing = ['ESCROW_ADDRESS', 'USDT_ADDRESS', 'AMOY_RPC_URL'].filter((name) => !env[name]);
+  const missing = ['ESCROW_ADDRESS', 'USDT_ADDRESS'].filter((name) => !env[name]);
+  if (!provider) {
+    missing.push('AMOY_RPC_URL');
+  }
   if (missing.length > 0) {
     return { disabled: `missing ${missing.join(', ')}` };
   }
@@ -350,4 +376,16 @@ export function createAdminAuthConfigFromEnv(
       origin: env.WEBAUTHN_ORIGIN,
     },
   };
+}
+
+/**
+ * Document files: a private S3 bucket when DOCUMENTS_BUCKET is set (credentials
+ * from the server's IAM role), otherwise a folder on disk, DOCUMENTS_DIR or
+ * ./data/documents. Unset in tests, where uploads answer 503.
+ */
+export function createDocumentStorageFromEnv(env: Env = process.env): FileStorage {
+  if (env.DOCUMENTS_BUCKET) {
+    return new S3Storage(env.DOCUMENTS_BUCKET, env.AWS_REGION || 'eu-north-1');
+  }
+  return new DiskStorage(path.resolve(env.DOCUMENTS_DIR || 'data/documents'));
 }

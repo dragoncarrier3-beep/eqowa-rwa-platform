@@ -1,13 +1,15 @@
 import { ethers, network } from 'hardhat';
 
+import { networkByChainId } from '../config/networks';
 import { DEPLOYER_ADDRESS } from '../config/wallets';
 import { SETTLEMENT_DEPLOY_GAS_ESTIMATE, assertDeployerFunded, assertSafeDeployed } from './lib/amoyPreflight';
-import { deploySettlementContracts } from './lib/deploySettlementContracts';
+import { deploySettlementContracts, deploySettlementForUsdt } from './lib/deploySettlementContracts';
 import { readDeployment, withSettlement, writeDeployment } from './lib/deploymentFile';
 
 /**
- * Deploy MockUSDT, the forwarder and the escrow next to an existing suite.
- * The escrow is owned by the suite's Safe from construction.
+ * Deploy the forwarder and the escrow next to an existing suite, with MockUSDT
+ * on test networks and the chain's native USDT where config/networks.ts has one
+ * (Polygon mainnet). The escrow is owned by the suite's Safe from construction.
  */
 async function main() {
   const [deployer] = await ethers.getSigners();
@@ -25,6 +27,9 @@ async function main() {
     withSettlement(suite, suite.settlement); // throws with the replace hint
   }
 
+  if (network.name === 'polygon') {
+    await assertSafeDeployed(ethers.provider, suite.safe);
+  }
   if (network.name === 'amoy') {
     await assertSafeDeployed(ethers.provider, suite.safe);
     await assertDeployerFunded(
@@ -35,7 +40,12 @@ async function main() {
     );
   }
 
-  const { record } = await deploySettlementContracts({ deployer, owner: suite.safe });
+  const chainId = Number((await ethers.provider.getNetwork()).chainId);
+  const nativeUsdt = networkByChainId(chainId)?.usdtAddress;
+  const { record } = nativeUsdt
+    ? await deploySettlementForUsdt({ deployer, owner: suite.safe, usdtAddress: nativeUsdt })
+    : await deploySettlementContracts({ deployer, owner: suite.safe });
+  console.log(nativeUsdt ? `Escrow accepts native USDT ${nativeUsdt}` : 'Deployed MockUSDT for this test network');
   const filePath = await writeDeployment(network.name, withSettlement(suite, record, { force }));
 
   console.log('Settlement deployed. Escrow owner is the Safe', record.owner);

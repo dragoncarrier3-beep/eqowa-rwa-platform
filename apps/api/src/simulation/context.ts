@@ -15,11 +15,12 @@ import {
 
 export const REPO_ROOT = path.resolve(import.meta.dirname, '../../../..');
 
-export type SimNetwork = 'localhost' | 'amoy';
+/** localhost: a Hardhat node. shared: the Anvil test chain on the server. Both use the public test keys. */
+export type SimNetwork = 'localhost' | 'shared' | 'amoy';
 
-/** Public Hardhat test accounts #0 and #2. Only ever used against a local node. */
-const HARDHAT_OPERATOR_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
-const HARDHAT_AGENT_KEY = '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a';
+/** Public Hardhat test accounts #0 and #2 (Anvil has the same ones). Only ever used on a test chain. */
+export const HARDHAT_OPERATOR_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+export const HARDHAT_AGENT_KEY = '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a';
 export const HARDHAT_SAFE_ADDRESS = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
 export const HARDHAT_AGENT_ADDRESS = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC';
 
@@ -36,7 +37,13 @@ export type SimDeployment = {
   identityRegistry: string;
   compliance: string;
   identityImplementationAuthority: string;
-  modules: { countryAllowlist: string; timeLockup: string };
+  modules: {
+    countryAllowlist: string;
+    timeLockup: string;
+    balanceCap?: string;
+    holderCountCap?: string;
+    dailyMintCap?: string;
+  };
   settlement?: { owner: string; usdt: string; forwarder: string; escrow: string; escrowDeployBlock: number };
 };
 
@@ -69,22 +76,23 @@ export type SimContext = ReturnType<typeof createContext>;
  * keys are never written anywhere.
  */
 export function createContext(network: SimNetwork, env: NodeJS.ProcessEnv = process.env) {
-  const rpcUrl = network === 'localhost' ? (env.SIM_RPC_URL ?? 'http://127.0.0.1:8545') : env.AMOY_RPC_URL;
+  const local = network !== 'amoy';
+  const rpcUrl = local ? (env.SIM_RPC_URL ?? 'http://127.0.0.1:8545') : env.AMOY_RPC_URL;
   if (!rpcUrl) {
     throw new Error('Set AMOY_RPC_URL');
   }
-  const operatorKey = network === 'localhost' ? HARDHAT_OPERATOR_KEY : env.DEPLOYER_PRIVATE_KEY;
-  const agentKey = network === 'localhost' ? HARDHAT_AGENT_KEY : env.AGENT_SIGNER_PRIVATE_KEY;
+  const operatorKey = local ? HARDHAT_OPERATOR_KEY : env.DEPLOYER_PRIVATE_KEY;
+  const agentKey = local ? HARDHAT_AGENT_KEY : env.AGENT_SIGNER_PRIVATE_KEY;
   if (!operatorKey || !agentKey) {
     throw new Error('Set DEPLOYER_PRIVATE_KEY and AGENT_SIGNER_PRIVATE_KEY for the Amoy simulation');
   }
-  const relayerKey = network === 'localhost' ? agentKey : env.RELAYER_PRIVATE_KEY || agentKey;
+  const relayerKey = local ? agentKey : env.RELAYER_PRIVATE_KEY || agentKey;
 
   // cacheTimeout -1: ethers otherwise reuses a getBlockNumber answer for 250 ms,
   // and local rounds run faster than that, so the worker would never see the
   // 12 blocks it waits for.
   const provider = new JsonRpcProvider(rpcUrl, undefined, {
-    pollingInterval: network === 'localhost' ? 200 : 4000,
+    pollingInterval: local ? 200 : 4000,
     cacheTimeout: -1,
   });
   const operatorWallet = new Wallet(operatorKey, provider);
@@ -115,9 +123,9 @@ export function createContext(network: SimNetwork, env: NodeJS.ProcessEnv = proc
     relayer,
     investors: { alice: investor('alice'), david: investor('david'), charlie: investor('charlie') },
     /** Gas money for a test wallet that has to sign its own transactions. */
-    investorGas: parseEther(network === 'localhost' ? '1' : '0.02'),
+    investorGas: parseEther(local ? '1' : '0.02'),
     /** Floor for the agent, which relays deposits and sends every mint. */
-    agentGasFloor: parseEther(network === 'localhost' ? '1' : '0.1'),
+    agentGasFloor: parseEther(local ? '1' : '0.1'),
     txUrl: (hash: string) => (network === 'amoy' ? `${AMOY_EXPLORER}/tx/${hash}` : undefined),
     addressUrl: (address: string) => (network === 'amoy' ? `${AMOY_EXPLORER}/address/${address}` : undefined),
     /**
@@ -125,14 +133,14 @@ export function createContext(network: SimNetwork, env: NodeJS.ProcessEnv = proc
      * Locally that is 12 mined blocks; on Amoy it is waiting for real ones.
      */
     async advance() {
-      if (network === 'localhost') {
-        await provider.send('hardhat_mine', ['0xc']);
+      if (local) {
+        await provider.send(network === 'shared' ? 'anvil_mine' : 'hardhat_mine', ['0xc']);
       } else {
         await new Promise((resolve) => setTimeout(resolve, 5_000));
       }
     },
     /** Rounds of `advance` before giving up on the chain. */
-    maxRounds: network === 'localhost' ? 6 : 120,
+    maxRounds: local ? 6 : 120,
   };
 }
 

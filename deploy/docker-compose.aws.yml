@@ -1,0 +1,143 @@
+# Shared test chain for the three admins: Anvil, Postgres, the API with its
+# workers, the web app and Caddy (TLS for app. and api.). See deploy/README.md.
+#
+#   cd deploy
+#   docker compose -f docker-compose.aws.yml up -d --build
+#   docker compose -f docker-compose.aws.yml --profile seed run --rm seed
+#   docker compose -f docker-compose.aws.yml restart api
+#
+# Secrets come from deploy/.env (copy deploy/.env.example). Contract addresses
+# come from the seed, which writes them to the state volume.
+
+name: eqowa-shared
+
+services:
+  anvil:
+    # Pin a digest after the first pull: docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/foundry-rs/foundry:stable
+    image: ghcr.io/foundry-rs/foundry:stable
+    # Root only so Anvil can write its state into the named volume.
+    user: '0:0'
+    entrypoint: ['anvil']
+    command:
+      - --host=0.0.0.0
+      - --chain-id=31337
+      - --block-time=2
+      # deployTREXSuite takes about 19.6M gas in one transaction, above the
+      # 16.7M per-transaction cap of the Osaka hardfork (EIP-7825).
+      - --hardfork=prague
+      - --state=/chain/state.json
+      - --state-interval=30
+    volumes:
+      - chain:/chain
+    # Not published: Anvil's default accounts are unlocked. Wallets reach the
+    # chain through the API's POST /rpc, which allows only safe methods.
+    expose:
+      - '8545'
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: eqowa
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: eqowa
+    volumes:
+      - pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U eqowa -d eqowa']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile.api
+    env_file:
+      - .env
+    environment:
+      ENV_FILE: /state/shared.env
+      DATABASE_URL: postgres://eqowa:${POSTGRES_PASSWORD}@postgres:5432/eqowa
+      RPC_URL: http://anvil:8545
+      RPC_PROXY_URL: http://anvil:8545
+      API_PORT: '3001'
+      CHAIN_ID: '31337'
+      DOCUMENTS_DIR: /state/documents
+      SIWE_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in deploy/.env}
+      WEB_ORIGIN: https://${APP_DOMAIN}
+      WEBAUTHN_RP_ID: ${APP_DOMAIN}
+      WEBAUTHN_ORIGIN: https://${APP_DOMAIN}
+      AUTH_COOKIE_SECURE: 'true'
+      # Anvil mines a block every 2 seconds; poll faster than on Amoy.
+      SETTLEMENT_POLL_MS: '4000'
+      TOKEN_INDEX_POLL_MS: '4000'
+      ONBOARDING_POLL_MS: '4000'
+    volumes:
+      - state:/state
+    depends_on:
+      postgres:
+        condition: service_healthy
+      anvil:
+        condition: service_started
+    expose:
+      - '3001'
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_CHAIN_ID: '31337'
+        NEXT_PUBLIC_RPC_URL: https://${API_DOMAIN:?set API_DOMAIN in deploy/.env}/rpc
+        NEXT_PUBLIC_APP_URL: https://${APP_DOMAIN}
+        NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ${WALLETCONNECT_PROJECT_ID:-}
+    environment:
+      API_INTERNAL_URL: http://api:3001
+    depends_on:
+      - api
+    expose:
+      - '3000'
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in deploy/.env}
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - web
+      - api
+    restart: unless-stopped
+
+  # One-off: deploys the contracts onto Anvil, runs the simulation and writes
+  # /state/shared.env. Run it once after the first start, then restart api.
+  seed:
+    profiles: ['seed']
+    build:
+      context: ..
+      dockerfile: Dockerfile.api
+    environment:
+      SIM_RPC_URL: http://anvil:8545
+      STATE_DIR: /state
+    volumes:
+      - state:/state
+    depends_on:
+      - anvil
+    command: ['npm', '--prefix', 'apps/api', 'run', 'seed:shared']
+
+volumes:
+  chain:
+  pg:
+  state:
+  caddy-data:
+  caddy-config:

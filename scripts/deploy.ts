@@ -1,7 +1,7 @@
 import { ethers, network } from 'hardhat';
 
 import { AGENT_WALLET_ADDRESS, DEPLOYER_ADDRESS } from '../config/wallets';
-import { assertAmoyDeployReady } from './lib/amoyPreflight';
+import { assertAmoyDeployReady, assertSafeDeployed } from './lib/amoyPreflight';
 import { deployEqowaContracts, SUITE_SALT } from './lib/deployEqowaContracts';
 import { writeDeployment } from './lib/deploymentFile';
 
@@ -33,6 +33,11 @@ async function main() {
 
   if (network.name === 'amoy') {
     await assertAmoyDeployReady(ethers.provider, deployerAddress, safe);
+  }
+  // Mainnet gas is quoted by the network, so only the Safe is checked here;
+  // npm run preflight:polygon checks the balances first (docs/MAINNET.md).
+  if (network.name === 'polygon') {
+    await assertSafeDeployed(ethers.provider, safe);
   }
 
   let claimIssuer = process.env.CLAIM_ISSUER_ADDRESS;

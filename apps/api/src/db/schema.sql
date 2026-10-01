@@ -195,6 +195,38 @@ CREATE TABLE IF NOT EXISTS admin_credentials (
   last_used_at TIMESTAMPTZ
 );
 
+-- Investor documents. Files live in S3 or on disk under storage_key; rows are
+-- soft-deleted so the audit trail keeps what was published and when.
+CREATE TABLE IF NOT EXISTS documents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL,
+  visibility TEXT NOT NULL DEFAULT 'kyc' CHECK (visibility IN ('public', 'kyc')),
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'ready')),
+  filename TEXT,
+  size BIGINT,
+  sha256 TEXT,
+  storage_key TEXT UNIQUE,
+  uploaded_by TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ
+);
+
+-- Break-glass: resetting the keys of an admin who lost them. Two people and a
+-- Safe transaction hash per approval; rows are kept for the audit trail.
+CREATE TABLE IF NOT EXISTS admin_recoveries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  admin_id UUID NOT NULL REFERENCES admin_users (id),
+  requested_by TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'approved', 'rejected')),
+  safe_tx_hash TEXT,
+  resolved_by TEXT,
+  resolution TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at TIMESTAMPTZ
+);
+
 CREATE INDEX IF NOT EXISTS transactions_block_number_idx ON transactions (block_number);
 CREATE INDEX IF NOT EXISTS exceptions_status_idx ON exceptions (status);
 CREATE INDEX IF NOT EXISTS mint_intents_status_idx ON mint_intents (status);

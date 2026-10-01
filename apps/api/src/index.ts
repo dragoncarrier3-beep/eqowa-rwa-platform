@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { isAddress } from 'ethers';
+import { isAddress, type Signer } from 'ethers';
 import Fastify, { type FastifyRequest } from 'fastify';
 import pg from 'pg';
 
@@ -9,12 +9,19 @@ import { serializeAudit, serializeException, serializeIdentity, serializeKycEven
 import type { AssetCatalog, ChainReader } from './assets/catalog.ts';
 import { createAdminGuard, registerAdminAuthRoutes, type AdminAuthConfig } from './auth/adminAuth.ts';
 import { MemoryAdminStore, type AdminStore } from './auth/adminStore.ts';
+import { registerRecoveryRoutes } from './auth/recovery.ts';
+import { registerRpcProxy, type RpcProxyDeps } from './rpc/proxy.ts';
+import { MemoryRecoveryStore, type RecoveryStore } from './auth/recoveryStore.ts';
 import { MemoryConsentStore, type ConsentStore } from './auth/consentStore.ts';
 import { MemoryNonceStore, type NonceStore } from './auth/nonceStore.ts';
 import { readSession, registerAuthRoutes, type AuthConfig } from './auth/routes.ts';
 import type { TokenLedgerStore } from './indexer/ledger.ts';
 import type { CheckoutContracts } from './investor/checkout.ts';
 import { registerInvestorRoutes } from './investor/routes.ts';
+import { registerAdminDashboardRoutes } from './admin/dashboard.ts';
+import { registerTokenRoutes, type TokenActions } from './admin/tokenRoutes.ts';
+import { registerDocumentRoutes } from './documents/routes.ts';
+import { MemoryDocumentStore, type DocumentStore, type FileStorage } from './documents/store.ts';
 import { TOKEN_TRANSFERS_CURSOR } from './indexer/tokenWorker.ts';
 import { applySumsubWebhook, type ApplicantLookup } from './kyc/applyKyc.ts';
 import { MemoryIdentityStore, type IdentityRecord, type IdentityStore } from './kyc/identityStore.ts';
@@ -29,12 +36,21 @@ import {
   type MintExecutor,
 } from './mint/pipeline.ts';
 import { RelayRefused, relayUsdtApproval, type RelayApprovalInput } from '../../../config/relayer.ts';
+import type { ComplianceModules } from '../../../config/complianceTx.ts';
+import {
+  agentBurn,
+  agentMint,
+  setTokenPaused,
+  setWalletFrozen,
+  type ControlResult,
+} from '../../../config/tokenControls.ts';
 import { parseForwardRequest, relayEscrowDeposit } from './relayer/relayDeposit.ts';
 import type { SyncStateStore } from './settlement/syncState.ts';
 import { createRelayerSigner } from './signer/fromEnv.ts';
 import {
   createAssetCatalogFromEnv,
   createAdminAuthConfigFromEnv,
+  createDocumentStorageFromEnv,
   createAuthConfigFromEnv,
   createMintExecutor,
   createOnboardingWorkerFromEnv,
@@ -86,8 +102,21 @@ export type AppDeps = {
   /** WebAuthn admin sign-in. Unset leaves only the legacy x-admin-key. */
   adminAuth?: AdminAuthConfig;
   adminStore?: AdminStore;
+  recoveries?: RecoveryStore;
+  /** Shared test chain only: POST /rpc forwards allowlisted JSON-RPC to this node. */
+  rpcProxy?: RpcProxyDeps;
   /** Base of the enrolment links in admin invites. */
   webOrigin?: string;
+  /** Freeze or unfreeze a wallet through the agent signer. */
+  setWalletFrozen?: (wallet: string, frozen: boolean) => Promise<ControlResult>;
+  /** Pause, mint and burn through the agent signer. */
+  tokenActions?: TokenActions;
+  /** Compliance module addresses for the rules panel. */
+  complianceModules?: ComplianceModules;
+  safeAddress?: string;
+  documents?: DocumentStore;
+  /** Where document files live; unset makes uploads and downloads 503. */
+  documentStorage?: FileStorage;
   assets?: AssetCatalog;
   /** Investor sign-in. Unset answers 503 on the auth routes. */
   auth?: AuthConfig;
@@ -147,6 +176,53 @@ export function buildApp(deps: AppDeps = {}) {
     adminStore,
     nonces: deps.nonces ?? new MemoryNonceStore(),
     guard,
+    audit: (entry) => mintStore.appendAudit({ ...entry, now: now() }),
+    webOrigin: deps.webOrigin ?? process.env.WEB_ORIGIN ?? 'http://localhost:3000',
+    now,
+  });
+
+  registerAdminDashboardRoutes(app, {
+    guard,
+    mintStore,
+    identities: store,
+    ledger,
+    syncStore,
+    tokenAddress,
+    chain: deps.chain,
+    setWalletFrozen: deps.setWalletFrozen,
+    audit: (entry) => mintStore.appendAudit({ ...entry, now: now() }),
+  });
+
+  registerTokenRoutes(app, {
+    guard,
+    audit: (entry) => mintStore.appendAudit({ ...entry, now: now() }),
+    chain: deps.chain,
+    chainId: deps.chainId ?? Number(process.env.CHAIN_ID ?? 80002),
+    tokenAddress,
+    modules: deps.complianceModules ?? {},
+    safeAddress: deps.safeAddress,
+    tokenActions: deps.tokenActions,
+    now,
+  });
+
+  registerDocumentRoutes(app, {
+    guard,
+    audit: (entry) => mintStore.appendAudit({ ...entry, now: now() }),
+    documents: deps.documents ?? new MemoryDocumentStore(),
+    storage: deps.documentStorage,
+    auth: deps.auth,
+    identities: store,
+    now,
+  });
+
+  if (deps.rpcProxy) {
+    registerRpcProxy(app, deps.rpcProxy);
+  }
+
+  registerRecoveryRoutes(app, {
+    guard,
+    admins: adminStore,
+    tickets: deps.recoveries ?? new MemoryRecoveryStore(),
     audit: (entry) => mintStore.appendAudit({ ...entry, now: now() }),
     webOrigin: deps.webOrigin ?? process.env.WEB_ORIGIN ?? 'http://localhost:3000',
     now,
@@ -576,6 +652,31 @@ function createRelayHandler(): AppDeps['relayDeposit'] {
     });
 }
 
+/** Module addresses from deployments/<network>.json; unset ones show as not configured. */
+function complianceModulesFromEnv(env = process.env): ComplianceModules {
+  const pick = (name: string) => (isAddress(env[name] ?? '') ? env[name] : undefined);
+  return {
+    balanceCap: pick('BALANCE_CAP_MODULE_ADDRESS'),
+    holderCountCap: pick('HOLDER_COUNT_MODULE_ADDRESS'),
+    dailyMintCap: pick('DAILY_MINT_CAP_MODULE_ADDRESS'),
+    timeLockup: pick('TIME_LOCKUP_MODULE_ADDRESS'),
+    countryAllowlist: pick('COUNTRY_ALLOWLIST_MODULE_ADDRESS'),
+  };
+}
+
+/** Agent-signed pause, mint and burn; off without the agent signer or the token. */
+function tokenActionsFromEnv(signer: Signer | undefined, env = process.env): TokenActions | undefined {
+  const tokenAddress = env.TOKEN_ADDRESS ?? '';
+  if (!signer || !isAddress(tokenAddress)) {
+    return undefined;
+  }
+  return {
+    setPaused: (paused) => setTokenPaused({ signer, tokenAddress, paused }),
+    mint: (wallet, amount) => agentMint({ signer, tokenAddress, wallet, amount }),
+    burn: (wallet, amount) => agentBurn({ signer, tokenAddress, wallet, amount }),
+  };
+}
+
 /** Checkout needs all four settlement addresses; any missing or malformed turns it off. */
 function checkoutContractsFromEnv(env = process.env): CheckoutContracts | undefined {
   const contracts = {
@@ -631,6 +732,18 @@ async function main() {
     auth: 'auth' in auth ? auth.auth : undefined,
     adminAuth: 'adminAuth' in adminAuth ? adminAuth.adminAuth : undefined,
     adminStore: stores.admins,
+    recoveries: stores.recoveries,
+    rpcProxy: process.env.RPC_PROXY_URL ? { upstream: process.env.RPC_PROXY_URL } : undefined,
+    setWalletFrozen:
+      agentSigner && isAddress(process.env.TOKEN_ADDRESS ?? '')
+        ? (wallet, frozen) =>
+            setWalletFrozen({ signer: agentSigner, tokenAddress: process.env.TOKEN_ADDRESS!, wallet, frozen })
+        : undefined,
+    tokenActions: tokenActionsFromEnv(agentSigner),
+    complianceModules: complianceModulesFromEnv(),
+    documents: stores.documents,
+    documentStorage: createDocumentStorageFromEnv(),
+    safeAddress: isAddress(process.env.GNOSIS_SAFE_ADDRESS ?? '') ? process.env.GNOSIS_SAFE_ADDRESS : undefined,
     nonces: stores.nonces,
     consents: stores.consents,
     chain: rpcProvider(),

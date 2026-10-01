@@ -6,12 +6,13 @@ Eqowa RWA tokenization platform, Phase 1. Four milestones under the proposal of
 | Milestone | Scope | Parent issue | Status |
 | --- | --- | --- | --- |
 | 1 | ERC-3643 contract layer for EQOWA Group Shares | [#1](https://github.com/Flip9ght/eqowa-rwa-platform/issues/1) | Code merged. Live Amoy deploy waits on POL |
-| 2 | Backend, indexer, escrow, Sumsub, payment-to-mint | [#31](https://github.com/Flip9ght/eqowa-rwa-platform/issues/31) | Code merged. Awaiting client acceptance |
-| 3 | Amoy testnet simulation | to be created | Starts Friday 19 September |
-| 4 | Next.js portals, WebAuthn, mainnet runbook, handover | to be created | Not started |
+| 2 | Backend, indexer, escrow, Sumsub, payment-to-mint | [#31](https://github.com/Flip9ght/eqowa-rwa-platform/issues/31) | Code merged |
+| 3 | Amoy testnet simulation | to be created | Accepted 26 September. Live Amoy run waits on POL |
+| 4 | Next.js portals, WebAuthn, mainnet runbook, handover | [#50](https://github.com/Flip9ght/eqowa-rwa-platform/issues/50) | Code complete, in review |
 
-Test suites: `npx hardhat test` 145 passing, `npm run api:test` 38 passing. CI runs
-both on every pull request.
+Test suites (30 September 2026): `npx hardhat test` 204 passing, `npm run api:test`
+157 passing, `npm run web:test` 77 passing, `npm run simulate:local` 23 of 23 steps.
+CI runs all of them on every pull request.
 
 Client specification for the token: [#2](https://github.com/Flip9ght/eqowa-rwa-platform/issues/2).
 
@@ -209,29 +210,42 @@ expiry, 12 block confirmations, manual exception queue routing.
 | M3-04 | Gas profile (`docs/GAS.md`) and one consistent revert scheme across first-party contracts, plus a revert-to-message map for the front end | No |
 | M3-05 | Live pass: close Milestone 1 on Amoy, then run M3-01 and M3-03 on Amoy, point the API at the live addresses, tag | Yes |
 
-## Milestone 4 plan: front end and handover
+## Milestone 4: portals, admin security, deployment and handover
 
-Proposal: unified Next.js codebase with the admin dashboard and the investor
-portal, WebAuthn and FIDO2 hardware authentication for administrators, global
-asset listing with live supply and holder metrics, compliance parameter panel,
-wired mint, burn and freeze controls, mainnet deployment scripts and runbook,
-repository and infrastructure handover. One week.
+Started 26 September 2026 after Milestone 3 was accepted. One Next.js app
+(`apps/web`) serves the investor portal and the admin dashboard; it talks to
+the API through a same-origin proxy, so session cookies never cross origins.
 
-| Task | Description |
-| --- | --- |
-| M4-01 | `apps/web` Next.js App Router, Tailwind, standard component library, wagmi and viem, network guard for 80002 and 137 |
-| M4-02 | Investor sign-in with SIWE and a JWT session cookie |
-| M4-03 | Investor onboarding through the Sumsub WebSDK and a KYC status view |
-| M4-04 | Investor portfolio: balances, lock-up timers, transaction history from the indexer |
-| M4-05 | Investor checkout: quote, USDT approve, gasless deposit, status tracking with pre-flight checks |
-| M4-06 | Admin WebAuthn: two keys per admin, login challenge, Safe-signed break-glass reset |
-| M4-07 | Admin dashboard: asset listing, compliance panel (changes become Safe transactions), exception queue, audit log, KYC list |
-| M4-08 | Admin mint, burn, freeze and pause controls through the agent signer, audited |
-| M4-09 | Polygon mainnet network config, native USDT address, fee config, runbook, handover checklist |
+| Task | Description | PR |
+| --- | --- | --- |
+| M4-01 | `apps/web` scaffold, dark theme from the logo blue, legal draft pages, web CI job | [#67](https://github.com/Flip9ght/eqowa-rwa-platform/pull/67) |
+| M4-02 | Shared config for web and API, public asset listing | [#69](https://github.com/Flip9ght/eqowa-rwa-platform/pull/69) |
+| M4-03 | Live token indexer: balances, supply, holders, pause state | [#72](https://github.com/Flip9ght/eqowa-rwa-platform/pull/72) |
+| M4-04 | Investor wallet sign-in (SIWE), MetaMask and WalletConnect, network guard | [#74](https://github.com/Flip9ght/eqowa-rwa-platform/pull/74) |
+| M4-05 | Portfolio: balance, lock-up, estimated unlock schedule, quotes | [#76](https://github.com/Flip9ght/eqowa-rwa-platform/pull/76), [#77](https://github.com/Flip9ght/eqowa-rwa-platform/pull/77) |
+| M4-06 | Checkout: pre-flight checks, quote, gasless USDT approval and deposit, 15-minute countdown, 12-block progress | [#79](https://github.com/Flip9ght/eqowa-rwa-platform/pull/79), [#81](https://github.com/Flip9ght/eqowa-rwa-platform/pull/81) |
+| M4-07 | Sumsub WebSDK (`id-and-liveness`), on-chain onboarding after approval, terms consent | [#84](https://github.com/Flip9ght/eqowa-rwa-platform/pull/84), [#86](https://github.com/Flip9ght/eqowa-rwa-platform/pull/86), [#88](https://github.com/Flip9ght/eqowa-rwa-platform/pull/88) |
+| M4-08 | Admin WebAuthn: invites, two keys per admin, roles on every admin route, sign-in, enrolment and team pages | [#90](https://github.com/Flip9ght/eqowa-rwa-platform/pull/90), [#92](https://github.com/Flip9ght/eqowa-rwa-platform/pull/92) |
+| M4-09 | Admin dashboard, purchases with expiry and confirmations, 100k Safe approval, investors with freeze, exception queue, audit log | this PR |
+| M4-10 | Token controls (mint, burn, pause) through the agent signer, compliance panel with Safe Transaction Builder files | this PR |
+| M4-11 | Documents: admin upload (S3 or disk), per-document visibility, KYC-gated downloads | this PR |
+| M4-12 | Break-glass key recovery: two people plus Safe evidence, key reset and re-invite, server fallback | this PR |
+| M4-13 | Shared test chain on AWS: Docker Compose (Anvil, Postgres, API, web, Caddy), seed, `POST /rpc` allowlist proxy | this PR |
+| M4-14 | Mainnet: `polygon` network, native USDT settlement path, read-only preflight, runbook, handover checklist | this PR |
 
-Client items needed for Milestone 4: brand assets (logo, favicon, colour), the
-number of admin accounts and whether YubiKeys have been procured, MetaMask only
-or WalletConnect as well, and whether Eqowa provisions Vercel or AWS.
+Documents: [deploy/README.md](deploy/README.md), [docs/MAINNET.md](docs/MAINNET.md),
+[docs/HANDOVER.md](docs/HANDOVER.md), [docs/ADMIN_AUTH.md](docs/ADMIN_AUTH.md).
+
+Waiting on Eqowa:
+
+- DNS A records for `app.eqowa.com` and `api.eqowa.com` to the server's elastic
+  IP, then the shared test chain goes up (deploy/README.md).
+- YubiKeys, enrolled on the live host. Testing uses platform passkeys.
+- The investor documents to upload, and optionally an S3 bucket.
+- POL for the live Amoy run.
+
+Out of scope for Phase 1: executing the mainnet launch, audits, mobile apps,
+further assets or commodities (Phase 2).
 
 ## Licence position
 
